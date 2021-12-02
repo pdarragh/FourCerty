@@ -33,10 +33,6 @@ Inductive defn : Type :=
 Inductive prg : Type :=
   Prg (funs : list defn) (e : tm).
 
-Inductive ctx : Type :=
-  | MtCtx
-  | Bind (x : string) (v : val) (rst : ctx).
-
 Inductive err : Type :=
   | OOF
   | Error.
@@ -45,23 +41,13 @@ Inductive result {A : Type} : Type :=
   | Err (e : err)
   | Ok (v : A).
 
-Fixpoint lookup (env : ctx) (x : string) :=
-  match env with
-  | MtCtx => None
-  | Bind y v rst =>
-    if eqb x y then
-      Some v
-    else
-      lookup rst x
-  end.
-
-Fixpoint build_ctx (xs : list string) (vs : list val) :=
+Fixpoint build_env (xs : list string) (vs : list val) :=
   match xs, vs with
-  | nil,nil => Some MtCtx
+  | nil,nil => Some empty
   | x :: xs', v :: vs' =>
-    match build_ctx xs' vs' with
+    match build_env xs' vs' with
     | None => None
-    | Some env => Some (Bind x v env)
+    | Some env => Some (update env x v)
     end
   | _, _ => None
   end.
@@ -124,11 +110,11 @@ Definition do_prim2 (op : prim2) (v1 : val) (v2 : val) :=
     end
   end.
 
-Definition eval_tm : partial_map defn -> nat -> tm -> ctx -> @result val :=
+Definition eval_tm :=
   fun (funs : partial_map defn) =>
   fix eval' (f : nat) :=
   fix eval'' (t : tm) :=
-  fun (env : ctx) =>
+  fun (env : partial_map val) =>
 
   match t with
   | Const v => Ok v
@@ -163,13 +149,13 @@ Definition eval_tm : partial_map defn -> nat -> tm -> ctx -> @result val :=
     match eval_lst ts with
     | Err e => Err e
     | Ok vs =>
-      match lookup env fn with
+      match env fn with
       | Some _ => Err Error
       | None =>
         match funs fn with
         | None => Err Error
         | Some (Defn _ xs t) =>
-          match build_ctx xs vs with
+          match build_env xs vs with
           | None => Err Error
           | Some env' =>
             match f with
@@ -189,7 +175,18 @@ Definition eval_tm : partial_map defn -> nat -> tm -> ctx -> @result val :=
   | Let x t1 t2 =>
     match eval'' t1 env with
     | Err e => Err e
-    | Ok v => eval'' t2 (Bind x v env)
+    | Ok v => eval'' t2 (update env x v)
     end
+  end.
+
+Fixpoint extract_funs (funs : list defn) :=
+  match funs with
+  | nil => empty
+  | (Defn fn xs t) :: funs' => update (extract_funs funs') fn (Defn fn xs t)
+  end.
+
+Definition eval (f : nat) (p : prg) :=
+  match p with
+  | Prg funs t => eval_tm (extract_funs funs) f t empty
   end.
 
