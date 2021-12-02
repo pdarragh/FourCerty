@@ -66,6 +66,64 @@ Fixpoint build_ctx (xs : list string) (vs : list val) :=
   | _, _ => None
   end.
 
+Definition do_prim1 (op : prim1) (v : val) :=
+  match op with
+  | P_add1 =>
+    match v with
+    | V_Int i => Ok (V_Int (i + 1))
+    | _ => Err Error
+    end
+  | P_sub1 =>
+    match v with
+    | V_Int i => Ok (V_Int (i - 1))
+    | _ => Err Error
+    end
+  | P_not =>
+    match v with
+    | V_Bool false => Ok (V_Bool true)
+    | _ => Ok (V_Bool false)
+    end
+  end.
+
+Definition do_prim2 (op : prim2) (v1 : val) (v2 : val) :=
+  match op with
+  | P_add =>
+    match v1, v2 with
+    | V_Int i1, V_Int i2 => Ok (V_Int (i1 + i2))
+    | _, _ => Err Error
+    end
+  | P_sub =>
+    match v1, v2 with
+    | V_Int i1, V_Int i2 => Ok (V_Int (i1 - i2))
+    | _, _ => Err Error
+    end
+  | P_and =>
+    match v1, v2 with
+    | V_Bool b1, V_Bool b2 => Ok (V_Bool (b1 && b2))
+    | _, _ => Err Error
+    end
+  | P_or =>
+    match v1, v2 with
+    | V_Bool b1, V_Bool b2 => Ok (V_Bool (b1 || b2))
+    | _, _ => Err Error
+    end
+  | P_eq =>
+    match v1, v2 with
+    | V_Int i1, V_Int i2 => Ok (V_Bool (Z.eqb i1 i2))
+    | _, _ => Err Error
+    end
+  | P_lt =>
+    match v1, v2 with
+    | V_Int i1, V_Int i2 => Ok (V_Bool (Z.ltb i1 i2))
+    | _, _ => Err Error
+    end
+  | P_le =>
+    match v1, v2 with
+    | V_Int i1, V_Int i2 => Ok (V_Bool (Z.leb i1 i2))
+    | _, _ => Err Error
+    end
+  end.
+
 Definition eval_tm : partial_map defn -> nat -> tm -> ctx -> @result val :=
   fun (funs : partial_map defn) =>
   fix eval' (f : nat) :=
@@ -74,8 +132,20 @@ Definition eval_tm : partial_map defn -> nat -> tm -> ctx -> @result val :=
 
   match t with
   | Const v => Ok v
-  | Prim1 op t' => Err Error (* todo *)
-  | Prim2 op t1 t2 => Err Error (* todo *)
+  | Prim1 op t' =>
+    match eval'' t' env with
+    | Err e => Err e
+    | Ok v => do_prim1 op v
+    end
+  | Prim2 op t1 t2 =>
+    match eval'' t1 env with
+    | Err e => Err e
+    | Ok v1 =>
+      match eval'' t2 env with
+      | Err e => Err e
+      | Ok v2 => do_prim2 op v1 v2
+      end
+    end
   | App fn ts =>
     let fix eval_lst ts :=
       match ts with
