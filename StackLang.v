@@ -1,6 +1,8 @@
 Require Import Strings.String Lists.List ZArith.
 From FourCerty Require Import Maps.
 
+Module StackLang.
+
 Inductive ins_val : Type :=
   | V_Int (i : Z)
   | V_Bool (b : bool).
@@ -93,8 +95,6 @@ Inductive result : Type :=
   | OOF
   | Error
   | Values (vs : list ins_val).
-
-Module StackLang.
 
 Inductive stk_ins : Type :=
   | Call (l : string)

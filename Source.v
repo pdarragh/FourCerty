@@ -1,6 +1,8 @@
 Require Import Strings.String Lists.List ZArith.
 From FourCerty Require Import Maps.
 
+Module SourceLang.
+
 Inductive val : Type :=
   | V_Bool (b : bool)
   | V_Int (i : Z).
@@ -190,3 +192,4 @@ Definition eval (f : nat) (p : prg) :=
   | Prg funs t => eval_tm (extract_funs funs) f t empty
   end.
 
+End SourceLang.
