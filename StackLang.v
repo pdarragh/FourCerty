@@ -25,68 +25,56 @@ Definition do_cmp (c : ins_cmp) (i1 : Z) (i2 : Z) :=
   | C_Ge => Z.leb i2 i1
   end.
 
-Inductive ins_auop : Type :=
-  | U_Add1
-  | U_Sub1.
-
-Inductive ins_buop : Type :=
-  | U_Not.
-
 Inductive ins_uop : Type :=
-  | AUop (op : ins_auop)
-  | BUop (op : ins_buop).
+  | U_Add1
+  | U_Sub1
+  | U_Not.
 
 Definition do_uop (u : ins_uop) (v : ins_val) :=
   match u with
-  | AUop op =>
+  | U_Add1 =>
     match v with
-    | V_Bool b => None
-    | V_Int i =>
-      Some (match op with
-            | U_Add1 => V_Int (Z.add 1 i)
-            | U_Sub1 => V_Int (Z.sub i 1)
-            end)
+    | V_Int i => Some (V_Int (i + 1))
+    | _ => None
     end
-  | BUop op =>
+  | U_Sub1 =>
     match v with
-    | V_Bool b =>
-      Some (match op with
-            | U_Not => V_Bool (negb b)
-            end)
-    | V_Int i => None
+    | V_Int i => Some (V_Int (i - 1))
+    | _ => None
+    end
+  | U_Not =>
+    match v with
+    | V_Bool b => Some (V_Bool (negb b))
+    | _ => None
     end
   end.
 
-Inductive ins_abop : Type :=
+Inductive ins_bop : Type :=
   | B_Add
-  | B_Sub.
-
-Inductive ins_bbop : Type :=
+  | B_Sub
   | B_And
   | B_Or.
 
-Inductive ins_bop : Type :=
-  | ABop (op : ins_abop)
-  | BBop (op : ins_bbop).
-
 Definition do_bop (b : ins_bop) (v1 v2 : ins_val) :=
   match b with
-  | ABop op =>
+  | B_Add =>
     match v1, v2 with
-    | V_Int i1, V_Int i2 =>
-      Some(match op with
-           | B_Add => V_Int (Z.add i1 i2)
-           | B_Sub => V_Int (Z.sub i1 i2)
-           end)
+    | V_Int i1, V_Int i2 => Some (V_Int (i1 + i2))
     | _, _ => None
     end
-  | BBop op =>
+  | B_Sub =>
     match v1, v2 with
-    | V_Bool b1, V_Bool b2 =>
-      Some(match op with
-           | B_And => V_Bool (andb b1 b2)
-           | B_or => V_Bool (orb b1 b2)
-           end)
+    | V_Int i1, V_Int i2 => Some (V_Int (i1 - i2))
+    | _, _ => None
+    end
+  | B_And =>
+    match v1, v2 with
+    | V_Bool b1, V_Bool b2 => Some (V_Bool (andb b1 b2))
+    | _, _ => None
+    end
+  | B_Or =>
+    match v1, v2 with
+    | V_Bool b1, V_Bool b2 => Some (V_Bool (orb b1 b2))
     | _, _ => None
     end
   end.
@@ -160,7 +148,7 @@ Definition eval_ins :=
       end
     | Bop b =>
       match val_stack with
-      | v1 :: v2 :: rst =>
+      | v2 :: v1 :: rst =>
         match do_bop b v1 v2 with
         | None => Error
         | Some v => eval''' inss' (v :: rst)
