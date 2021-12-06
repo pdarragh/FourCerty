@@ -55,6 +55,7 @@ Instance show_prim2 : Show prim2 :=
 Fixpoint show_tm' (t : tm) : string :=
   match t with
   | Const v => show v
+  | Var x => x
   | Prim1 op t' => show op ++ " (" ++ show_tm' t' ++ ")"
   | Prim2 op t1 t2 => "(" ++ show_tm' t1 ++ ") " ++ show op ++ " (" ++ show_tm' t2 ++ ")"
   | App f ts => "(" ++ f ++ " " ++ (concat " " (List.map show_tm' ts)) ++ ")"

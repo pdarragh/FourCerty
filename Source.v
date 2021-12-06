@@ -23,6 +23,7 @@ Inductive prim2 : Type :=
 
 Inductive tm : Type :=
   | Const (v : val)
+  | Var (x : string)
   | Prim1 (op : prim1) (t : tm)
   | Prim2 (op : prim2) (t1 : tm) (t2 : tm)
   | App (f : string) (ts : list tm)
@@ -120,6 +121,11 @@ Definition eval_tm :=
 
   match t with
   | Const v => Ok v
+  | Var x =>
+      match env x with
+      | None => Err Error
+      | Some v => Ok v
+      end
   | Prim1 op t' =>
     match eval'' t' env with
     | Err e => Err e
