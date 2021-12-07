@@ -123,20 +123,30 @@ Definition gen_trivial_tm (names : list string) : G tm :=
              (5, liftM Var (elems_ default_name names)) ]
   end.
 
-(* NOTE: Generations dependent on function names currently disabled. *)
-Fixpoint gen_tm (f : nat) (names : list string) : G tm :=
+Definition pick_func_name (funcs : list string) : G string :=
+  elems_ "" funcs.
+
+Fixpoint gen_tm (f : nat) (funcs : list string) (vars : list string) : G tm :=
+  let app_mult :=
+    (* This allows us to disable generation of terms requiring at least one
+       function to be defined. *)
+    match funcs with
+    | [] => 0
+    | _ => 1
+    end in
   match f with
-  | O => gen_trivial_tm names
+  | O => gen_trivial_tm vars
   | S f' =>
-      freq [ (1, gen_trivial_tm names);
-             (2, liftM2 Prim1 gen_prim1 (gen_tm f' names)) ;
-             (2, liftM3 Prim2 gen_prim2 (gen_tm f' names) (gen_tm f' names)) ;
-             (0, liftM2 App gen_fn_in_env (listOf (gen_tm f' names))) ;
-             (3, liftM3 If (gen_tm f' names) (gen_tm f' names) (gen_tm f' names)) ;
+      freq [ (1, gen_trivial_tm vars);
+             (2, liftM2 Prim1 gen_prim1 (gen_tm f' funcs vars)) ;
+             (2, liftM3 Prim2 gen_prim2 (gen_tm f' funcs vars) (gen_tm f' funcs vars)) ;
+             (2 * app_mult,
+               liftM2 App (pick_func_name funcs) (listOf (gen_tm f' funcs vars))) ;
+             (3, liftM3 If (gen_tm f' funcs vars) (gen_tm f' funcs vars) (gen_tm f' funcs vars)) ;
              (3, gen_var_name
                    >>= (fun name =>
-                          let names := name :: names in
-                          liftM2 (Let name) (gen_tm f' names) (gen_tm f' names))) ]
+                          let vars := name :: vars in
+                          liftM2 (Let name) (gen_tm f' funcs vars) (gen_tm f' funcs vars))) ]
   end.
 
 Fixpoint remove {A : Type} (n : nat) (xs : list A) :=
@@ -175,25 +185,27 @@ Definition gen_args (n : nat) : G (list string) :=
 
 Definition ARG_MAX := 5.
 
-Definition gen_defn (func_name : string) (tm_fuel : nat) : G defn :=
+Definition gen_defn (func_name : string) (funcs : list string) (tm_fuel : nat) : G defn :=
   (gen_args ARG_MAX)
     >>= (fun args =>
-           (gen_tm tm_fuel args)
+           (gen_tm tm_fuel funcs args)
              >>= (fun tm =>
                     ret (Defn func_name args tm))).
 
 Definition DEFN_TM_FUEL := 3.
 
-Fixpoint gen_defns (names : list string) : G (list defn) :=
-  match names with
-  | [] => ret []
-  | name :: names' =>
-      (gen_defn name DEFN_TM_FUEL)
-        >>= (fun defn =>
-               (gen_defns names')
-                 >>= (fun defns =>
-                        ret (defn :: defns)))
-  end.
+Fixpoint gen_defns (funcs : list string) : G (list defn) :=
+  let fix gen_defns' (remaining_names : list string) :=
+    match remaining_names with
+    | [] => ret []
+    | name :: names' =>
+        (gen_defn name funcs DEFN_TM_FUEL)
+          >>= (fun defn =>
+                 (gen_defns' names')
+                   >>= (fun defns =>
+                          ret (defn :: defns)))
+    end in
+  gen_defns' funcs.
 
 Fixpoint build_defn_names (n : nat) : list string :=
   match n with
@@ -207,10 +219,10 @@ Definition PRG_TM_FUEL := 5.
 Definition gen_prg : G prg :=
   (choose (0, DEFNS_MAX))
     >>= (fun defnc =>
-           let names := build_defn_names defnc in
-           (gen_defns names)
+           let funcs := build_defn_names defnc in
+           (gen_defns funcs)
              >>= (fun defns =>
-                    (gen_tm PRG_TM_FUEL [])
+                    (gen_tm PRG_TM_FUEL funcs [])
                       >>= (fun tm =>
                              ret (Prg defns tm)))).
 
