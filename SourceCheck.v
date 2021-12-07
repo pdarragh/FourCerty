@@ -66,6 +66,22 @@ Fixpoint show_tm' (t : tm) : string :=
 Instance show_tm : Show tm :=
   { show := show_tm' }.
 
+Definition show_defn' (d : defn) : string :=
+  match d with
+  | Defn f xs body => "(fun " ++ f ++ " (" ++ concat " " xs ++ ") " ++ show body ++ ")"
+  end.
+
+Instance show_defn : Show defn :=
+  { show := show_defn' }.
+
+Definition show_prg' (p : prg) : string :=
+  match p with
+  | Prg funs e => "<{ [" ++ concat " | " (List.map show funs) ++ " ] " ++ show e ++ " }>"
+  end.
+
+Instance show_prg : Show prg :=
+  { show := show_prg' }.
+
 Definition gen_val : G val :=
   oneOf [ ret (V_Bool true);
           ret (V_Bool false);
