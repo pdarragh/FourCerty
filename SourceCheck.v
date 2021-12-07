@@ -1,5 +1,5 @@
 (* Strings *)
-Require Import Strings.String ZArith.
+Require Import Lists.List Strings.String ZArith.
 Open Scope string_scope.
 
 (* QuickChick *)
@@ -8,6 +8,7 @@ Open Scope qc_scope.
 Set Warnings "-extraction-opaque-accessed,-extraction".
 
 (* Notations *)
+Import ListNotations.
 Import MonadNotation.
 Import QcDefaultNotation.
 
@@ -107,24 +108,104 @@ Definition gen_prim2 : G prim2 :=
 Definition gen_fn_in_env : G string :=
   ret "my great function".
 
-Definition gen_var_name : G string :=
-  elems ["a"; "b"; "c"; "d"; "e"; "f"; "g"; "h"; "i"; "j"; "k"; "l"; "m";
-         "n"; "o"; "p"; "q"; "r"; "s"; "t"; "u"; "v"; "w"; "x"; "y"; "z" ].
+Definition VAR_NAMES :=
+  ["a"; "b"; "c"; "d"; "e"; "f"; "g"; "h"; "i"; "j"; "k"; "l"; "m";
+   "n"; "o"; "p"; "q"; "r"; "s"; "t"; "u"; "v"; "w"; "x"; "y"; "z" ].
 
-Definition gen_trivial_tm : G tm :=
-  liftM Const gen_val.
+Definition gen_var_name : G string :=
+  elems_ "" VAR_NAMES.
+
+Definition gen_trivial_tm (names : list string) : G tm :=
+  match names with
+  | [] => liftM Const gen_val
+  | default_name :: _ =>
+      freq [ (1, liftM Const gen_val);
+             (5, liftM Var (elems_ default_name names)) ]
+  end.
 
 (* NOTE: Generations dependent on function names currently disabled. *)
-Fixpoint gen_tm (f : nat) : G tm :=
+Fixpoint gen_tm (f : nat) (names : list string) : G tm :=
   match f with
-  | O => gen_trivial_tm
+  | O => gen_trivial_tm names
   | S f' =>
-      freq [ (1, liftM Const gen_val);
-             (2, liftM2 Prim1 gen_prim1 (gen_tm f')) ;
-             (2, liftM3 Prim2 gen_prim2 (gen_tm f') (gen_tm f')) ;
-             (0, liftM2 App gen_fn_in_env (listOf (gen_tm f'))) ;
-             (3, liftM3 If (gen_tm f') (gen_tm f') (gen_tm f')) ;
-             (3, liftM3 Let gen_var_name (gen_tm f') (gen_tm f')) ]
+      freq [ (1, gen_trivial_tm names);
+             (2, liftM2 Prim1 gen_prim1 (gen_tm f' names)) ;
+             (2, liftM3 Prim2 gen_prim2 (gen_tm f' names) (gen_tm f' names)) ;
+             (0, liftM2 App gen_fn_in_env (listOf (gen_tm f' names))) ;
+             (3, liftM3 If (gen_tm f' names) (gen_tm f' names) (gen_tm f' names)) ;
+             (3, gen_var_name
+                   >>= (fun name =>
+                          let names := name :: names in
+                          liftM2 (Let name) (gen_tm f' names) (gen_tm f' names))) ]
   end.
+
+Fixpoint remove {A : Type} (n : nat) (xs : list A) :=
+  match n with
+  | O => xs
+  | S n' =>
+      match xs with
+      | [] => []
+      | x::xs' => x::(remove n' xs')
+      end
+  end.
+
+Definition rand_select_remove {A : Type} (def : A) (xs : list A) : G (A * list A) :=
+  match xs with
+  | [] => ret (def, xs)
+  | _ => (choose (0, List.length xs - 1))
+          >>= (fun n => let elem := List.nth n xs def in
+                     ret (elem, remove n xs))
+  end.
+
+Fixpoint rand_select_n {A : Type} (n : nat) (def : A) (xs : list A) : G (list A) :=
+  match n with
+  | O => ret []
+  | S n' =>
+      (rand_select_remove def xs)
+        >>= (fun '(r, xs') =>
+               (rand_select_n n' def xs')
+                 >>= (fun rs =>
+                        ret (r :: rs)))
+  end.
+
+Definition gen_args (n : nat) : G (list string) :=
+  (choose (0, n))
+    >>= (fun argc =>
+           rand_select_n argc "" VAR_NAMES).
+
+Definition ARG_MAX := 5.
+
+Definition gen_defn (next_num : nat) (tm_fuel : nat) : G defn :=
+  let func_name := "func" ++ show next_num in
+  (gen_args ARG_MAX)
+    >>= (fun args =>
+           (gen_tm tm_fuel args)
+             >>= (fun tm =>
+                    ret (Defn func_name args tm))).
+
+Definition DEFN_TM_FUEL := 3.
+
+Fixpoint gen_defns (n : nat) : G (list defn) :=
+  match n with
+  | O => ret []
+  | S n' =>
+      (gen_defn n DEFN_TM_FUEL)
+        >>= (fun defn =>
+               (gen_defns n')
+                 >>= (fun defns =>
+                        ret (defn :: defns)))
+  end.
+
+Definition DEFNS_MAX := 5.
+Definition PRG_TM_FUEL := 5.
+
+Definition gen_prg : G prg :=
+  (choose (0, DEFNS_MAX))
+    >>= (fun defnc =>
+           (gen_defns defnc)
+             >>= (fun defns =>
+                    (gen_tm PRG_TM_FUEL [])
+                      >>= (fun tm =>
+                             ret (Prg defns tm)))).
 
 End SourceCheck.
