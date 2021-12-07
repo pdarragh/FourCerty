@@ -175,8 +175,7 @@ Definition gen_args (n : nat) : G (list string) :=
 
 Definition ARG_MAX := 5.
 
-Definition gen_defn (next_num : nat) (tm_fuel : nat) : G defn :=
-  let func_name := "func" ++ show next_num in
+Definition gen_defn (func_name : string) (tm_fuel : nat) : G defn :=
   (gen_args ARG_MAX)
     >>= (fun args =>
            (gen_tm tm_fuel args)
@@ -185,15 +184,21 @@ Definition gen_defn (next_num : nat) (tm_fuel : nat) : G defn :=
 
 Definition DEFN_TM_FUEL := 3.
 
-Fixpoint gen_defns (n : nat) : G (list defn) :=
-  match n with
-  | O => ret []
-  | S n' =>
-      (gen_defn n DEFN_TM_FUEL)
+Fixpoint gen_defns (names : list string) : G (list defn) :=
+  match names with
+  | [] => ret []
+  | name :: names' =>
+      (gen_defn name DEFN_TM_FUEL)
         >>= (fun defn =>
-               (gen_defns n')
+               (gen_defns names')
                  >>= (fun defns =>
                         ret (defn :: defns)))
+  end.
+
+Fixpoint build_defn_names (n : nat) : list string :=
+  match n with
+  | O => []
+  | S n' => ("func" ++ show n) :: (build_defn_names n')
   end.
 
 Definition DEFNS_MAX := 5.
@@ -202,7 +207,8 @@ Definition PRG_TM_FUEL := 5.
 Definition gen_prg : G prg :=
   (choose (0, DEFNS_MAX))
     >>= (fun defnc =>
-           (gen_defns defnc)
+           let names := build_defn_names defnc in
+           (gen_defns names)
              >>= (fun defns =>
                     (gen_tm PRG_TM_FUEL [])
                       >>= (fun tm =>
