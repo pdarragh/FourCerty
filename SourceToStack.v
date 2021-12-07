@@ -4,6 +4,8 @@ Import ListNotations.
 
 Module SourceToStack.
 
+Definition left_append {A} (l1 : list A) (l2 : list A) := l2 ++ l1.
+
 Definition compile_val (v : SourceLang.val) :=
   match v with
   | SourceLang.V_Bool b => StackLang.V_Bool b
@@ -28,30 +30,111 @@ Definition compile_prim2 (op : SourceLang.prim2) : StackLang.stk_ins :=
   | SourceLang.P_le => StackLang.Cmp StackLang.C_Le
   end.
 
-Fixpoint compile_tm (gamma : list (option string)) (e : SourceLang.tm) : list StackLang.stk_ins :=
+Fixpoint lookup_depth (gamma : list (option string)) (x : string) :=
+  match gamma with
+  | nil => None
+  | None :: gamma' => option_map S (lookup_depth gamma' x)
+  | Some y :: gamma' => if eqb x y then Some 0 else option_map S (lookup_depth gamma' x)
+  end.
+
+Fixpoint compile_tm (gamma : list (option string)) (e : SourceLang.tm) : option (list StackLang.stk_ins) :=
   match e with
-  | SourceLang.Const v => [StackLang.Push (compile_val v)]
-  | SourceLang.Prim1 op e' => compile_tm gamma e' ++ [StackLang.Uop (compile_prim1 op)]
-  | SourceLang.Prim2 op e1 e2 => compile_tm gamma e1 ++ compile_tm (None :: gamma) e2 ++ [compile_prim2 op]
-  | SourceLang.App l es => fold_right (fun e acc => compile_tm gamma e ++ acc) [] es ++ [StackLang.Call l]
-  | SourceLang.If e1 e2 e3 => compile_tm gamma e1 ++ [StackLang.If (compile_tm gamma e2) (compile_tm gamma e3)]
-  | SourceLang.Let x e1 e2 => compile_tm gamma e1 ++ compile_tm (Some x :: gamma) e2
+  | SourceLang.Const v => Some [StackLang.Push (compile_val v)]
+  | SourceLang.Var x =>
+    match lookup_depth gamma x with
+    | None => None
+    | Some n => Some [StackLang.StkRef n]
+    end
+  | SourceLang.Prim1 op e' =>
+    match compile_tm gamma e' with
+    | None => None
+    | Some ins => Some (ins ++ [StackLang.Uop (compile_prim1 op)])
+    end
+  | SourceLang.Prim2 op e1 e2 =>
+    match compile_tm gamma e1 with
+    | None => None
+    | Some ins1 =>
+      match compile_tm (None :: gamma) e2 with
+      | None => None
+      | Some ins2 => Some (ins1 ++ ins2 ++ [compile_prim2 op])
+      end
+    end
+  | SourceLang.App l es =>
+    let fix compile_tms gamma es :=
+      match es with
+      | nil => Some nil
+      | e :: es' =>
+        match compile_tm gamma e with
+        | None => None
+        | Some ins =>
+          match compile_tms (None :: gamma) es' with
+          | None => None
+          | Some inss => Some (ins ++ inss)
+          end
+        end
+      end in
+    match compile_tms gamma es with
+    | None => None
+    | Some ins => Some (ins ++ [StackLang.Call l])
+    end
+  | SourceLang.If e1 e2 e3 =>
+    match compile_tm gamma e1 with
+    | None => None
+    | Some ins1 =>
+      match compile_tm gamma e2 with
+      | None => None
+      | Some ins2 =>
+        match compile_tm gamma e3 with
+        | None => None
+        | Some ins3 => Some (ins1 ++ [StackLang.If ins2 ins3])
+        end
+      end
+    end
+  | SourceLang.Let x e1 e2 =>
+    match compile_tm gamma e1 with
+    | None => None
+    | Some ins1 =>
+      match compile_tm (Some x :: gamma) e2 with
+      | None => None
+      | Some ins2 => Some (ins1 ++ ins2)
+      end
+    end
   end.
 
-Definition compile_defn (defn: SourceLang.defn) : StackLang.stk_fun :=
+Definition compile_defn (defn: SourceLang.defn) : option StackLang.stk_fun :=
   match defn with
-  | SourceLang.Defn l xs e => StackLang.Fun l (compile_tm (map Some (List.rev xs)) e)
+  | SourceLang.Defn l xs e =>
+    match compile_tm (map Some (List.rev xs)) e with
+    | None => None
+    | Some ins => Some (StackLang.Fun l ins)
+    end
   end.
 
-Definition compile (src : SourceLang.prg) : StackLang.stk_prg :=
+Fixpoint join_option_list {A} (lst : list (option A)) : option (list A) :=
+  match lst with
+  | nil => Some nil
+  | None :: _ => None
+  | Some a :: rst => option_map (cons a) (join_option_list rst)
+  end.
+
+Definition compile (src : SourceLang.prg) : option StackLang.stk_prg :=
   match src with
-  | SourceLang.Prg funs e => StackLang.Prg (map compile_defn funs) (compile_tm [] e)
+  | SourceLang.Prg funs e =>
+    match join_option_list (map compile_defn funs) with
+    | None => None
+    | Some inss =>
+      match compile_tm [] e with
+      | None => None
+      | Some ins => Some (StackLang.Prg inss ins)
+      end
+    end
   end.
 
 Theorem compiler_correctness : forall (f : nat) (prg : SourceLang.prg) (v : SourceLang.val),
-  SourceLang.eval f prg = SourceLang.Ok v
-  ->
-  exists (f' : nat), StackLang.eval f' (compile prg) = StackLang.Values [compile_val v].
+  SourceLang.eval f prg = SourceLang.Ok v ->
+  exists (stk : StackLang.stk_prg), compile prg = Some stk ->
+  exists (f' : nat), StackLang.eval f' stk = StackLang.Values [compile_val v].
+Proof.
 Admitted.
 
 End SourceToStack.
