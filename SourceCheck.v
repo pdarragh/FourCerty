@@ -1,5 +1,6 @@
-(* Strings *)
 Require Import Lists.List Strings.String ZArith.
+
+(* Make string literals work. *)
 Open Scope string_scope.
 
 (* QuickChick *)
@@ -12,12 +13,30 @@ Import ListNotations.
 Import MonadNotation.
 Import QcDefaultNotation.
 
-(* Source *)
-From FourCerty Require Import Source.
-Import SourceLang.
+(* SourceLang *)
+From FourCerty Require Import SourceDef.
+Import SourceDef.
 
 (* Begin! *)
 Module SourceCheck.
+
+Inductive val_ty : Type :=
+  | T_Bool
+  | T_Int.
+
+Inductive ty : Type :=
+  | T_Val (Tv : val_ty)
+  | T_Fun (Tas : list ty) (Tr : ty).
+
+Fixpoint show_ty' (T : ty) : string :=
+  match T with
+  | T_Val T_Bool => "bool"
+  | T_Val T_Int => "int"
+  | T_Fun Tas Tr => "(" ++ concat " -> " (List.map show_ty' Tas) ++ " -> " ++ show_ty' Tr ++ ")"
+  end.
+
+Instance show_ty : Show ty :=
+  { show := show_ty' }.
 
 Definition show_val' (v : val) : string :=
   match v with
@@ -60,8 +79,8 @@ Fixpoint show_tm' (t : tm) : string :=
   | Prim1 op t' => show op ++ " (" ++ show_tm' t' ++ ")"
   | Prim2 op t1 t2 => "(" ++ show_tm' t1 ++ ") " ++ show op ++ " (" ++ show_tm' t2 ++ ")"
   | App f ts => "(" ++ f ++ " " ++ (concat " " (List.map show_tm' ts)) ++ ")"
-  | If t1 t2 t3 => "if (" ++ show_tm' t1 ++ ") then (" ++ show_tm' t2 ++ ") else (" ++ show_tm' t3 ++ ")"
-  | Let x t1 t2 => "let " ++ x ++ " = (" ++ show_tm' t1 ++ ") in (" ++ show_tm' t2 ++ ")"
+  | If t1 t2 t3 => "(if (" ++ show_tm' t1 ++ ") then (" ++ show_tm' t2 ++ ") else (" ++ show_tm' t3 ++ "))"
+  | Let x t1 t2 => "(let " ++ x ++ " = (" ++ show_tm' t1 ++ ") in (" ++ show_tm' t2 ++ "))"
   end.
 
 Instance show_tm : Show tm :=
@@ -77,16 +96,23 @@ Instance show_defn : Show defn :=
 
 Definition show_prg' (p : prg) : string :=
   match p with
-  | Prg funs e => "<{ [" ++ concat " | " (List.map show funs) ++ " ] " ++ show e ++ " }>"
+  | Prg funs e => "<{ [ " ++ concat " | " (List.map show funs) ++ " ] " ++ show e ++ " }>"
   end.
 
 Instance show_prg : Show prg :=
   { show := show_prg' }.
 
+(* Definition gen_val (T : val_ty) : G val := *)
+(*   match val_ty with *)
+(*   | T_Bool => elems [ V_Bool true; *)
+(*                      V_Bool false ] *)
+(*   | T_Int => liftM V_Int arbitrary *)
+(*   end. *)
+
 Definition gen_val : G val :=
   oneOf [ ret (V_Bool true);
           ret (V_Bool false);
-          liftGen (fun i => V_Int i) arbitrary ].
+          liftM V_Int arbitrary ].
 
 Definition gen_prim1 : G prim1 :=
   elems [ P_add1;
@@ -102,11 +128,16 @@ Definition gen_prim2 : G prim2 :=
           P_lt;
           P_le ].
 
-(* TODO: This should instead be made to select a function from a given
-         collection. I don't think it would be useful to generate random
-         strings that are known to not correspond to functions in-scope. *)
-Definition gen_fn_in_env : G string :=
-  ret "my great function".
+Definition gen_val_ty : G val_ty :=
+  elems [ T_Bool;
+          T_Int ].
+
+(* Definition gen_fn_ty (f : nat) : G ty := *)
+(*   match f with *)
+(*   | O => liftM T_Val gen_val_ty *)
+(*   | S f' => *)
+(*       gen_val_ty *)
+(*         >>= (fun T => liftM (T_Fun T) (gen_fn_ty f')). *)
 
 Definition VAR_NAMES :=
   ["a"; "b"; "c"; "d"; "e"; "f"; "g"; "h"; "i"; "j"; "k"; "l"; "m";
@@ -178,21 +209,22 @@ Fixpoint rand_select_n {A : Type} (n : nat) (def : A) (xs : list A) : G (list A)
                         ret (r :: rs)))
   end.
 
-Definition gen_args (n : nat) : G (list string) :=
-  (choose (0, n))
+Definition gen_args (min max : nat) : G (list string) :=
+  (choose (min, max))
     >>= (fun argc =>
            rand_select_n argc "" VAR_NAMES).
 
+Definition ARG_MIN := 1.        (* Functions cannot be thunks. *)
 Definition ARG_MAX := 5.
 
 Definition gen_defn (func_name : string) (funcs : list string) (tm_fuel : nat) : G defn :=
-  (gen_args ARG_MAX)
+  (gen_args ARG_MIN ARG_MAX)
     >>= (fun args =>
            (gen_tm tm_fuel funcs args)
              >>= (fun tm =>
                     ret (Defn func_name args tm))).
 
-Definition DEFN_TM_FUEL := 3.
+Definition DEFN_TM_FUEL := 1.
 
 Fixpoint gen_defns (funcs : list string) : G (list defn) :=
   let fix gen_defns' (remaining_names : list string) :=
@@ -214,7 +246,7 @@ Fixpoint build_defn_names (n : nat) : list string :=
   end.
 
 Definition DEFNS_MAX := 5.
-Definition PRG_TM_FUEL := 5.
+Definition PRG_TM_FUEL := 3.
 
 Definition gen_prg : G prg :=
   (choose (0, DEFNS_MAX))
@@ -225,5 +257,7 @@ Definition gen_prg : G prg :=
                     (gen_tm PRG_TM_FUEL funcs [])
                       >>= (fun tm =>
                              ret (Prg defns tm)))).
+
+Sample gen_prg.
 
 End SourceCheck.
