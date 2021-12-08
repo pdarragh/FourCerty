@@ -14,8 +14,9 @@ Import MonadNotation.
 Import QcDefaultNotation.
 
 (* SourceLang *)
-From FourCerty Require Import SourceDef.
-Import SourceDef.
+From FourCerty Require Import Utility.
+From FourCerty Require Import Source.
+Import SourceLang.
 
 (* Begin! *)
 Module SourceCheck.
@@ -24,19 +25,28 @@ Inductive val_ty : Type :=
   | T_Bool
   | T_Int.
 
-Inductive ty : Type :=
-  | T_Val (Tv : val_ty)
-  | T_Fun (Tas : list ty) (Tr : ty).
+Instance dec_eq_val_ty (T1 T2 : val_ty) : Dec (T1 = T2).
+Proof. dec_eq. Qed.
 
-Fixpoint show_ty' (T : ty) : string :=
+Definition show_val_ty' (T : val_ty) : string :=
   match T with
-  | T_Val T_Bool => "bool"
-  | T_Val T_Int => "int"
-  | T_Fun Tas Tr => "(" ++ concat " -> " (List.map show_ty' Tas) ++ " -> " ++ show_ty' Tr ++ ")"
+  | T_Bool => "bool"
+  | T_Int => "int"
   end.
 
-Instance show_ty : Show ty :=
-  { show := show_ty' }.
+Instance show_val_ty : Show val_ty :=
+  { show := show_val_ty' }.
+
+Inductive fun_ty : Type :=
+  | T_Fun (Tas : list val_ty) (Tr : val_ty).
+
+Definition show_fun_ty' (T : fun_ty) : string :=
+  match T with
+  | T_Fun Tas Tr => "((" ++ concat ", " (List.map show Tas) ++ ") -> " ++ show Tr ++ ")"
+  end.
+
+Instance show_fun_ty : Show fun_ty :=
+  { show := show_fun_ty' }.
 
 Definition show_val' (v : val) : string :=
   match v with
@@ -102,42 +112,28 @@ Definition show_prg' (p : prg) : string :=
 Instance show_prg : Show prg :=
   { show := show_prg' }.
 
-(* Definition gen_val (T : val_ty) : G val := *)
-(*   match val_ty with *)
-(*   | T_Bool => elems [ V_Bool true; *)
-(*                      V_Bool false ] *)
-(*   | T_Int => liftM V_Int arbitrary *)
-(*   end. *)
+Definition gen_val (T : val_ty) : G val :=
+  match T with
+  | T_Bool => elems [ V_Bool true;
+                     V_Bool false ]
+  | T_Int => liftM V_Int arbitrary
+  end.
 
-Definition gen_val : G val :=
-  oneOf [ ret (V_Bool true);
-          ret (V_Bool false);
-          liftM V_Int arbitrary ].
+Definition gen_prim1 (T : val_ty) : G prim1 :=
+  match T with
+  | T_Bool => ret P_not
+  | T_Int => elems [ P_add1; P_sub1 ]
+  end.
 
-Definition gen_prim1 : G prim1 :=
-  elems [ P_add1;
-          P_sub1;
-          P_not ].
-
-Definition gen_prim2 : G prim2 :=
-  elems [ P_add;
-          P_sub;
-          P_and;
-          P_or;
-          P_eq;
-          P_lt;
-          P_le ].
+Definition gen_prim2 (T : val_ty) : G prim2 :=
+  match T with
+  | T_Bool => elems [ P_and; P_or ]
+  | T_Int => elems [P_add; P_sub; P_eq; P_lt; P_le ]
+  end.
 
 Definition gen_val_ty : G val_ty :=
   elems [ T_Bool;
           T_Int ].
-
-(* Definition gen_fn_ty (f : nat) : G ty := *)
-(*   match f with *)
-(*   | O => liftM T_Val gen_val_ty *)
-(*   | S f' => *)
-(*       gen_val_ty *)
-(*         >>= (fun T => liftM (T_Fun T) (gen_fn_ty f')). *)
 
 Definition VAR_NAMES :=
   ["a"; "b"; "c"; "d"; "e"; "f"; "g"; "h"; "i"; "j"; "k"; "l"; "m";
@@ -146,117 +142,129 @@ Definition VAR_NAMES :=
 Definition gen_var_name : G string :=
   elems_ "" VAR_NAMES.
 
-Definition gen_trivial_tm (names : list string) : G tm :=
-  match names with
-  | [] => liftM Const gen_val
+Definition gen_trivial_tm (T : val_ty) (vars : list (string * val_ty)) : G tm :=
+  let vars := List.map fst (List.filter (fun '(n, Tn) => Tn = T?) vars) in
+  match vars with
+  | [] => liftM Const (gen_val T)
   | default_name :: _ =>
-      freq [ (1, liftM Const gen_val);
-             (5, liftM Var (elems_ default_name names)) ]
+      freq [ (1, liftM Const (gen_val T));
+             (5, liftM Var (elems_ default_name vars)) ]
   end.
 
 Definition pick_func_name (funcs : list string) : G string :=
   elems_ "" funcs.
 
-Fixpoint gen_tm (f : nat) (funcs : list string) (vars : list string) : G tm :=
-  let app_mult :=
-    (* This allows us to disable generation of terms requiring at least one
-       function to be defined. *)
-    match funcs with
-    | [] => 0
-    | _ => 1
-    end in
+Definition app_multiplier {A : Type} (funcs : list A) : nat :=
+  match funcs with
+  | [] => 0
+  | _ => 1
+  end.
+
+Definition gen_var : G (string * val_ty) :=
+  name <- gen_var_name;;
+  T <- gen_val_ty;;
+  ret (name, T).
+
+Fixpoint gen_tm
+         (T : val_ty)
+         (f : nat)
+         (funcs : list (string * fun_ty))
+         (vars : list (string * val_ty)) : G tm :=
+  let t_funcs := List.filter (fun '(f, (T_Fun Tas Tr)) => Tr = T?) funcs in
+  let app_mult := app_multiplier t_funcs in
   match f with
-  | O => gen_trivial_tm vars
+  | O => gen_trivial_tm T vars
   | S f' =>
-      freq [ (1, gen_trivial_tm vars);
-             (2, liftM2 Prim1 gen_prim1 (gen_tm f' funcs vars)) ;
-             (2, liftM3 Prim2 gen_prim2 (gen_tm f' funcs vars) (gen_tm f' funcs vars)) ;
+      freq [ (1, gen_trivial_tm T vars);
+             (2, liftM2 Prim1 (gen_prim1 T) (gen_tm T f' funcs vars));
+             (2, liftM3 Prim2
+                        (gen_prim2 T)
+                        (gen_tm T f' funcs vars)
+                        (gen_tm T f' funcs vars));
              (2 * app_mult,
-               liftM2 App (pick_func_name funcs) (listOf (gen_tm f' funcs vars))) ;
-             (3, liftM3 If (gen_tm f' funcs vars) (gen_tm f' funcs vars) (gen_tm f' funcs vars)) ;
-             (3, gen_var_name
-                   >>= (fun name =>
-                          let vars := name :: vars in
-                          liftM2 (Let name) (gen_tm f' funcs vars) (gen_tm f' funcs vars))) ]
+               (rand_select ("", T_Fun [] T_Int) t_funcs)
+                 >>= (fun '(f, (T_Fun Tas _)) =>
+                        (sequenceM (List.map (fun Ta => gen_tm Ta f' funcs vars) Tas))
+                          >>= (fun args =>
+                                 ret (App f args))));
+             (3, liftM3 If
+                        (gen_tm T_Bool f' funcs vars)
+                        (gen_tm T f' funcs vars)
+                        (gen_tm T f' funcs vars));
+             (3, gen_var
+                   >>= (fun '(var, Tv) =>
+                          (gen_tm Tv f' funcs vars)
+                            >>= (fun val =>
+                                   let vars := (var, Tv) :: vars in
+                                   liftM (Let var val) (gen_tm T f' funcs vars)))) ]
   end.
-
-Fixpoint remove {A : Type} (n : nat) (xs : list A) :=
-  match n with
-  | O => xs
-  | S n' =>
-      match xs with
-      | [] => []
-      | x::xs' => x::(remove n' xs')
-      end
-  end.
-
-Definition rand_select_remove {A : Type} (def : A) (xs : list A) : G (A * list A) :=
-  match xs with
-  | [] => ret (def, xs)
-  | _ => (choose (0, List.length xs - 1))
-          >>= (fun n => let elem := List.nth n xs def in
-                     ret (elem, remove n xs))
-  end.
-
-Fixpoint rand_select_n {A : Type} (n : nat) (def : A) (xs : list A) : G (list A) :=
-  match n with
-  | O => ret []
-  | S n' =>
-      (rand_select_remove def xs)
-        >>= (fun '(r, xs') =>
-               (rand_select_n n' def xs')
-                 >>= (fun rs =>
-                        ret (r :: rs)))
-  end.
-
-Definition gen_args (min max : nat) : G (list string) :=
-  (choose (min, max))
-    >>= (fun argc =>
-           rand_select_n argc "" VAR_NAMES).
 
 Definition ARG_MIN := 1.        (* Functions cannot be thunks. *)
 Definition ARG_MAX := 5.
 
-Definition gen_defn (func_name : string) (funcs : list string) (tm_fuel : nat) : G defn :=
-  (gen_args ARG_MIN ARG_MAX)
-    >>= (fun args =>
-           (gen_tm tm_fuel funcs args)
-             >>= (fun tm =>
-                    ret (Defn func_name args tm))).
+Definition gen_fn_ty : G fun_ty :=
+  argc <- (choose (ARG_MIN, ARG_MAX));;
+  Tas <- (vectorOf argc gen_val_ty);;
+  Tr <- gen_val_ty;;
+  ret (T_Fun Tas Tr).
+
+Definition gen_args (Tas : list val_ty) : G (list (string * val_ty)) :=
+  let fix gen_args'
+          (rem_Tas : list val_ty)
+          (avail_names : list string) : G (list (string * val_ty)) :=
+    match rem_Tas with
+    | [] => ret []
+    | Ta :: Tas' =>
+        '(name, rem_names) <- (rand_select_remove "" avail_names);;
+        args <- (gen_args' Tas' rem_names);;
+        ret ((name, Ta) :: args)
+    end in
+  gen_args' Tas VAR_NAMES.
+
+Definition gen_defn
+           (func_name : string)
+           (T : fun_ty)
+           (funcs : list (string * fun_ty))
+           (tm_fuel : nat) : G defn :=
+  match T with
+  | T_Fun Tas Tr =>
+      args <- (gen_args Tas);;
+      tm <- (gen_tm Tr tm_fuel funcs args);;
+      ret (Defn func_name (List.map fst args) tm)
+  end.
 
 Definition DEFN_TM_FUEL := 1.
 
-Fixpoint gen_defns (funcs : list string) : G (list defn) :=
-  let fix gen_defns' (remaining_names : list string) :=
-    match remaining_names with
+Definition gen_defns (funcs : list (string * fun_ty)) : G (list defn) :=
+  let fix gen_defns' (remaining_funcs : list (string * fun_ty)) :=
+    match remaining_funcs with
     | [] => ret []
-    | name :: names' =>
-        (gen_defn name funcs DEFN_TM_FUEL)
-          >>= (fun defn =>
-                 (gen_defns' names')
-                   >>= (fun defns =>
-                          ret (defn :: defns)))
+    | (name, T) :: funcs' =>
+        defn <- (gen_defn name T funcs DEFN_TM_FUEL);;
+        defns <- (gen_defns' funcs');;
+        ret (defn :: defns)
     end in
   gen_defns' funcs.
 
-Fixpoint build_defn_names (n : nat) : list string :=
+Fixpoint build_defn_shapes (n : nat) : G (list (string  * fun_ty)) :=
   match n with
-  | O => []
-  | S n' => ("func" ++ show n) :: (build_defn_names n')
+  | O => ret []
+  | S n' =>
+      Tf <- gen_fn_ty;;
+      shapes <- (build_defn_shapes n');;
+      ret ((("func" ++ show n), Tf) :: shapes)
   end.
 
 Definition DEFNS_MAX := 5.
 Definition PRG_TM_FUEL := 3.
 
 Definition gen_prg : G prg :=
-  (choose (0, DEFNS_MAX))
-    >>= (fun defnc =>
-           let funcs := build_defn_names defnc in
-           (gen_defns funcs)
-             >>= (fun defns =>
-                    (gen_tm PRG_TM_FUEL funcs [])
-                      >>= (fun tm =>
-                             ret (Prg defns tm)))).
+  defnc <- (choose (0, DEFNS_MAX));;
+  funcs <- (build_defn_shapes defnc);;
+  defns <- (gen_defns funcs);;
+  T <- gen_val_ty;;
+  tm <- (gen_tm T PRG_TM_FUEL funcs []);;
+  ret (Prg defns tm).
 
 Sample gen_prg.
 
