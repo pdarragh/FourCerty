@@ -37,7 +37,8 @@ Fixpoint lookup_depth (gamma : list (option string)) (x : string) :=
   | Some y :: gamma' => if eqb x y then Some 0 else option_map S (lookup_depth gamma' x)
   end.
 
-Fixpoint compile_tm (gamma : list (option string)) (e : SourceLang.tm) : option (list StackLang.stk_ins) :=
+Fixpoint compile_tm (gamma : list (option string)) (e : SourceLang.tm)
+    : option (list StackLang.stk_ins) :=
   match e with
   | SourceLang.Const v => Some [StackLang.Push (compile_val v)]
   | SourceLang.Var x =>
@@ -75,7 +76,7 @@ Fixpoint compile_tm (gamma : list (option string)) (e : SourceLang.tm) : option 
       end in
     match compile_tms gamma es with
     | None => None
-    | Some ins => Some (ins ++ [StackLang.Call l])
+    | Some ins => Some (ins ++ [StackLang.Call l (length es)])
     end
   | SourceLang.If e1 e2 e3 =>
     match compile_tm gamma e1 with
@@ -106,7 +107,7 @@ Definition compile_defn (defn: SourceLang.defn) : option StackLang.stk_fun :=
   | SourceLang.Defn l xs e =>
     match compile_tm (map Some (List.rev xs)) e with
     | None => None
-    | Some ins => Some (StackLang.Fun l ins)
+    | Some ins => Some (StackLang.Fun l (length xs) ins)
     end
   end.
 
@@ -133,7 +134,7 @@ Definition compile (src : SourceLang.prg) : option StackLang.stk_prg :=
 Theorem compiler_correctness : forall (f : nat) (prg : SourceLang.prg) (v : SourceLang.val),
   SourceLang.eval f prg = SourceLang.Ok v ->
   exists (stk : StackLang.stk_prg), compile prg = Some stk ->
-  exists (f' : nat), StackLang.eval f' stk = StackLang.Values [compile_val v].
+  exists (f' : nat), StackLang.eval f' stk = StackLang.Value (compile_val v).
 Proof.
 Admitted.
 

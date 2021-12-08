@@ -1,4 +1,4 @@
-Require Import Strings.String Lists.List ZArith.
+Require Import Lists.List ZArith.
 From FourCerty Require Import Maps.
 
 Module StackLang.
@@ -82,10 +82,10 @@ Definition do_bop (b : ins_bop) (v1 v2 : ins_val) :=
 Inductive result : Type :=
   | OOF
   | Error
-  | Values (vs : list ins_val).
+  | Value (v : ins_val).
 
 Inductive stk_ins : Type :=
-  | Call (l : string)
+  | Call (l : string) (n : nat)
   | Ret
   | Push (v : ins_val)
   | Pop
@@ -96,42 +96,64 @@ Inductive stk_ins : Type :=
   | If (thn : list stk_ins) (els : list stk_ins).
 
 Inductive stk_fun : Type :=
-  Fun (l : string) (ins : list stk_ins).
+  Fun (l : string) (n : nat) (ins : list stk_ins).
 
 Inductive stk_prg : Type :=
   Prg (funs : list stk_fun) (inss : list stk_ins).
 
 Inductive stk_stk : Type :=
   | MtStk
-  | Frame (inss : list stk_ins) (rst : stk_stk).
+  | Frame (inss : list stk_ins) (vals : list ins_val) (rst : stk_stk).
 
 Definition eval_ins :=
-  fun (funs : partial_map (list stk_ins)) =>
+  fun (funs : partial_map stk_fun) =>
   fix eval' (f : nat) :=
-  let oof_check := match f with
-                  | O => fun _ _ _ => OOF
-                  | S f' => eval' f'
-                  end in
+  let oof_check :=
+    match f with
+    | O => fun _ _ _ => OOF
+    | S f' => eval' f'
+    end in
   fix eval'' (call_stack : stk_stk) :=
   fix eval''' (inss : list stk_ins) :=
   fun (val_stack : list ins_val) =>
 
   match inss with
-  | nil => Values val_stack
+  | nil =>
+    match val_stack with
+    | nil => Error
+    | v :: _ => Value v
+    end
   | ins :: inss' =>
     match ins with
-    | Call l =>
-      match funs l with
-      | None => Error
-      | Some inss'' => oof_check (Frame inss' call_stack) inss'' val_stack
-      end
+    | Call l n =>
+      let args := firstn n val_stack in
+      let rst := skipn n val_stack in
+      if List.length args <? n then
+        Error
+      else
+        match funs l with
+        | None => Error
+        | Some (Fun _ m inss'') =>
+          if m =? n then
+            oof_check (Frame inss' rst call_stack) inss'' args
+          else
+            Error
+        end
     | Ret =>
       match call_stack with
       | MtStk => Error
-      | Frame inss'' rst => eval'' rst inss'' val_stack
+      | Frame inss'' vals rst =>
+        match val_stack with
+        | nil => Error
+        | v :: _ => eval'' rst inss'' (v :: vals)
+        end
       end
     | Push v => eval''' inss' (v :: val_stack)
-    | Pop => eval''' inss' val_stack
+    | Pop =>
+      match val_stack with
+      | nil => Error
+      | v :: rst => eval''' inss' rst
+      end
     | StkRef n =>
       match nth_error val_stack n with
       | None => Error
@@ -172,7 +194,7 @@ Definition eval_ins :=
 Fixpoint extract_funs (funs : list stk_fun) :=
   match funs with
   | nil => empty
-  | Fun l inss :: rst => update (extract_funs rst) l inss
+  | Fun l n inss :: rst => update (extract_funs rst) l (Fun l n inss)
   end.
 
 Definition eval (f : nat) (prg : stk_prg) :=
