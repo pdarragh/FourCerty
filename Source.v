@@ -115,8 +115,8 @@ Definition do_prim2 (op : prim2) (v1 : val) (v2 : val) :=
 
 Definition eval_tm :=
   fun (funs : partial_map defn) =>
-  fix eval' (f : nat) :=
-  fix eval'' (t : tm) :=
+  fix eval_fuel (f : nat) :=
+  fix eval_tm (t : tm) :=
   fun (env : partial_map val) =>
 
   match t with
@@ -127,15 +127,15 @@ Definition eval_tm :=
       | Some v => Ok v
       end
   | Prim1 op t' =>
-    match eval'' t' env with
+    match eval_tm t' env with
     | Err e => Err e
     | Ok v => do_prim1 op v
     end
   | Prim2 op t1 t2 =>
-    match eval'' t1 env with
+    match eval_tm t1 env with
     | Err e => Err e
     | Ok v1 =>
-      match eval'' t2 env with
+      match eval_tm t2 env with
       | Err e => Err e
       | Ok v2 => do_prim2 op v1 v2
       end
@@ -145,7 +145,7 @@ Definition eval_tm :=
       match ts with
       | nil => Ok nil
       | t' :: ts' =>
-        match eval'' t' env with
+        match eval_tm t' env with
         | Err e => Err e
         | Ok v =>
           match eval_lst ts' with
@@ -157,33 +157,29 @@ Definition eval_tm :=
     match eval_lst ts with
     | Err e => Err e
     | Ok vs =>
-      match env fn with
-      | Some _ => Err Error
-      | None =>
         match funs fn with
         | None => Err Error
         | Some (Defn _ xs t) =>
-          match build_env xs vs with
-          | None => Err Error
-          | Some env' =>
-            match f with
-            | O => Err OOF
-            | S f' => eval' f' t env'
+            match build_env xs vs with
+            | None => Err Error
+            | Some env' =>
+                match f with
+                | O => Err OOF
+                | S f' => eval_fuel f' t env'
+                end
             end
-          end
         end
-      end
     end
   | If t1 t2 t3 =>
-    match eval'' t1 env with
-    | Ok (V_Bool false) => eval'' t3 env
-    | Ok _ => eval'' t2 env
+    match eval_tm t1 env with
+    | Ok (V_Bool false) => eval_tm t3 env
+    | Ok _ => eval_tm t2 env
     | Err e => Err e
     end
   | Let x t1 t2 =>
-    match eval'' t1 env with
+    match eval_tm t1 env with
     | Err e => Err e
-    | Ok v => eval'' t2 (update env x v)
+    | Ok v => eval_tm t2 (update env x v)
     end
   end.
 
