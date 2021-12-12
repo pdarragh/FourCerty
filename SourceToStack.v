@@ -37,31 +37,31 @@ Fixpoint lookup_depth (gamma : list (option string)) (x : string) :=
   | Some y :: gamma' => if eqb x y then Some 0 else option_map S (lookup_depth gamma' x)
   end.
 
-Fixpoint compile_tm (gamma : list (option string)) (e : SourceLang.tm)
-    : list StackLang.stk_ins :=
+Fixpoint compile_tm (gamma : list (option string)) (e : SourceLang.tm) k
+    : StackLang.stk_tm :=
   match e with
-  | SourceLang.Const v => [StackLang.Push (compile_val v)]
+  | SourceLang.Const v => StackLang.Ins (StackLang.Push (compile_val v)) k
   | SourceLang.Var x =>
     match lookup_depth gamma x with
-    | None => [StackLang.Err]
-    | Some n => [StackLang.StkRef n]
+    | None => StackLang.Ins StackLang.Err k
+    | Some n => StackLang.Ins (StackLang.StkRef n) k
     end
-  | SourceLang.Prim1 op e' => compile_tm gamma e' ++ [StackLang.Uop (compile_prim1 op)]
-  | SourceLang.Prim2 op e1 e2 => compile_tm gamma e1 ++ compile_tm (None :: gamma) e2 ++ [compile_prim2 op]
+  | SourceLang.Prim1 op e' => compile_tm gamma e' (StackLang.Ins (StackLang.Uop (compile_prim1 op)) k)
+  | SourceLang.Prim2 op e1 e2 => compile_tm gamma e1 (compile_tm (None :: gamma) e2 (StackLang.Ins (compile_prim2 op) k))
   | SourceLang.App l es =>
     let fix compile_tms gamma es :=
       match es with
-      | [] => []
-      | e :: es' => compile_tm gamma e ++ compile_tms (None :: gamma) es'
+      | [] => StackLang.Ins (StackLang.Call l (length es)) k
+      | e :: es' => compile_tm gamma e (compile_tms (None :: gamma) es')
       end in
-    compile_tms gamma es ++ [StackLang.Call l (length es)]
-  | SourceLang.If e1 e2 e3 => compile_tm gamma e1 ++ [StackLang.If (compile_tm gamma e2) (compile_tm gamma e3)]
-  | SourceLang.Let x e1 e2 => compile_tm gamma e1 ++ compile_tm (Some x :: gamma) e2
+    compile_tms gamma es
+  | SourceLang.If e1 e2 e3 => compile_tm gamma e1 (StackLang.If (compile_tm gamma e2 StackLang.End) (compile_tm gamma e3 StackLang.End) k)
+  | SourceLang.Let x e1 e2 => compile_tm gamma e1 (compile_tm (Some x :: gamma) e2 k)
   end.
 
 Definition compile_defn (defn: SourceLang.defn) : StackLang.stk_fun :=
   match defn with
-  | SourceLang.Defn l xs e => StackLang.Fun l (length xs) (compile_tm (map Some (List.rev xs)) e)
+  | SourceLang.Defn l xs e => StackLang.Fun l (length xs) (compile_tm (map Some (List.rev xs)) e StackLang.End)
   end.
 
 Fixpoint join_option_list {A} (lst : list (option A)) : option (list A) :=
@@ -73,7 +73,7 @@ Fixpoint join_option_list {A} (lst : list (option A)) : option (list A) :=
 
 Definition compile (src : SourceLang.prg) : StackLang.stk_prg :=
   match src with
-  | SourceLang.Prg funs e => StackLang.Prg (map compile_defn funs) (compile_tm [] e)
+  | SourceLang.Prg funs e => StackLang.Prg (map compile_defn funs) (compile_tm [] e StackLang.End)
   end.
 
 Definition compile_result (res : SourceLang.result) :=
