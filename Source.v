@@ -12,12 +12,6 @@ Open Scope monad_scope.
 
 Module SourceLang.
 
-Definition lookup {A : Type} (pm : partial_map A) (x : string) : result A :=
-  match pm x with
-  | None => Err Error
-  | Some v => Ok v
-  end.
-
 Inductive val : Type :=
   | V_Bool (b : bool)
   | V_Int (i : Z).

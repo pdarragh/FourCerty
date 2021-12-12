@@ -1,4 +1,7 @@
 Require Import Lists.List Strings.String ZArith.
+From FourCerty Require Import Maps Result.
+
+Import Result.
 
 From QuickChick Require Import QuickChick.
 Open Scope qc_scope.
@@ -6,6 +9,12 @@ Set Warnings "-extraction-opaque-accessed,-extraction".
 
 Import ListNotations.
 Import MonadNotation.
+
+Definition lookup {A : Type} (pm : partial_map A) (x : string) : result A :=
+  match pm x with
+  | None => Err Error
+  | Some v => Ok v
+  end.
 
 Fixpoint remove {A : Type} (n : nat) (xs : list A) :=
   match n with
