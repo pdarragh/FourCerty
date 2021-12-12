@@ -1,5 +1,13 @@
 Require Import Lists.List ZArith.
-From FourCerty Require Import Maps.
+From ExtLib.Structures Require Import Monad.
+From FourCerty Require Import Maps Result Utility.
+
+Import Result Utility.
+
+Import ListNotations.
+Import MonadNotation.
+
+Open Scope monad_scope.
 
 Module StackLang.
 
@@ -30,22 +38,22 @@ Inductive ins_uop : Type :=
   | U_Sub1
   | U_Not.
 
-Definition do_uop (u : ins_uop) (v : ins_val) :=
+Definition do_uop (u : ins_uop) (v : ins_val) : result ins_val :=
   match u with
   | U_Add1 =>
     match v with
-    | V_Int i => Some (V_Int (i + 1))
-    | _ => None
+    | V_Int i => Ok (V_Int (i + 1))
+    | _ => Err Error
     end
   | U_Sub1 =>
     match v with
-    | V_Int i => Some (V_Int (i - 1))
-    | _ => None
+    | V_Int i => Ok (V_Int (i - 1))
+    | _ => Err Error
     end
   | U_Not =>
     match v with
-    | V_Bool b => Some (V_Bool (negb b))
-    | _ => None
+    | V_Bool b => Ok (V_Bool (negb b))
+    | _ => Err Error
     end
   end.
 
@@ -55,37 +63,32 @@ Inductive ins_bop : Type :=
   | B_And
   | B_Or.
 
-Definition do_bop (b : ins_bop) (v1 v2 : ins_val) :=
+Definition do_bop (b : ins_bop) (v1 v2 : ins_val) : result ins_val :=
   match b with
   | B_Add =>
     match v1, v2 with
-    | V_Int i1, V_Int i2 => Some (V_Int (i1 + i2))
-    | _, _ => None
+    | V_Int i1, V_Int i2 => Ok (V_Int (i1 + i2))
+    | _, _ => Err Error
     end
   | B_Sub =>
     match v1, v2 with
-    | V_Int i1, V_Int i2 => Some (V_Int (i1 - i2))
-    | _, _ => None
+    | V_Int i1, V_Int i2 => Ok (V_Int (i1 - i2))
+    | _, _ => Err Error
     end
   | B_And =>
     match v1, v2 with
-    | V_Bool b1, V_Bool b2 => Some (V_Bool (andb b1 b2))
-    | _, _ => None
+    | V_Bool b1, V_Bool b2 => Ok (V_Bool (andb b1 b2))
+    | _, _ => Err Error
     end
   | B_Or =>
     match v1, v2 with
-    | V_Bool b1, V_Bool b2 => Some (V_Bool (orb b1 b2))
-    | _, _ => None
+    | V_Bool b1, V_Bool b2 => Ok (V_Bool (orb b1 b2))
+    | _, _ => Err Error
     end
   end.
 
-Inductive result : Type :=
-  | OOF
-  | Error
-  | Value (v : ins_val).
-
 Inductive stk_ins : Type :=
-  | Err
+  | StkErr
   | Call (l : string) (n : nat)
   | Push (v : ins_val)
   | Pop
@@ -105,105 +108,85 @@ Inductive stk_fun : Type :=
 Inductive stk_prg : Type :=
   Prg (funs : list stk_fun) (inss : stk_tm).
 
-Definition eval_tm :=
-  fun (funs : partial_map stk_fun) =>
-  fix eval' (f : nat) :=
-  fix eval''' (inss : stk_tm) :=
-  fun (val_stack : list ins_val) =>
-
-  match inss with
-  | End =>
-    match val_stack with
-    | nil => Error
-    | v :: _ => Value v
-    end
-  | Ins ins inss' =>
-    match ins with
-    | Err => Error
-    | Call l n =>
-      let args := firstn n val_stack in
-      let rst := skipn n val_stack in
-      if List.length args <? n then
-        Error
-      else
-        match funs l with
-        | None => Error
-        | Some (Fun _ m inss'') =>
-          if m =? n then
-            match f with
-            | O => OOF
-            | S f' =>
-              match eval' f' inss'' args with
-              | OOF => OOF
-              | Error => Error
-              | Value v => eval''' inss' rst
-              end
-            end
-          else
-            Error
-        end
-    | Push v => eval''' inss' (v :: val_stack)
-    | Pop =>
-      match val_stack with
-      | nil => Error
-      | v :: rst => eval''' inss' rst
-      end
-    | StkRef n =>
-      match nth_error val_stack n with
-      | None => Error
-      | Some v => eval''' inss' (v :: val_stack)
-      end
-    | Uop u =>
-      match val_stack with
-      | v :: rst =>
-        match do_uop u v with
-        | None => Error
-        | Some v => eval''' inss' (v :: rst)
-        end
-      | _ => Error
-      end
-    | Bop b =>
-      match val_stack with
-      | v2 :: v1 :: rst =>
-        match do_bop b v1 v2 with
-        | None => Error
-        | Some v => eval''' inss' (v :: rst)
-        end
-      | _ => Error
-      end
-    | Cmp c =>
-      match val_stack with
-      | V_Int i1 :: V_Int i2 :: rst => eval''' inss' (V_Bool (do_cmp c i1 i2) :: rst)
-      | _ => Error
-      end
-    end
-  | If thn els nxt =>
-    match val_stack with
-    | V_Bool false :: rst =>
-      match eval''' els rst with
-      | OOF => OOF
-      | Error => Error
-      | Value v => eval''' nxt (v :: rst)
-      end
-    | _ :: rst =>
-      match eval''' thn rst with
-      | OOF => OOF
-      | Error => Error
-      | Value v => eval''' nxt (v :: rst)
-      end
-    | _ => Error
-    end
-  end.
-
 Fixpoint extract_funs (funs : list stk_fun) :=
   match funs with
   | nil => empty
   | Fun l n inss :: rst => update (extract_funs rst) l (Fun l n inss)
   end.
 
+Definition eval' (funs : partial_map stk_fun) :=
+  fix eval_fuel (f : nat) :=
+    fix eval_tm (inss : stk_tm) (val_stack : list ins_val) : result ins_val :=
+      match inss with
+      | End =>
+          match val_stack with
+          | [] => Err Error
+          | v :: _ => Ok v
+          end
+      | Ins ins inss' =>
+          match ins with
+          | StkErr => Err Error
+          | Call l n =>
+              let args := firstn n val_stack in
+              let rst := skipn n val_stack in
+              if List.length args <? n
+              then Err Error
+              else '(Fun _ m inss'') <- lookup funs l;;
+                   if m =? n
+                   then match f with
+                        | O => Err OOF
+                        | S f' =>
+                            v <- eval_fuel f' inss'' args;;
+                            eval_tm inss' rst
+                        end
+                   else Err Error
+          | Push v => eval_tm inss' (v :: val_stack)
+          | Pop =>
+              match val_stack with
+              | [] => Err Error
+              | v :: rst => eval_tm inss' rst
+              end
+          | StkRef n =>
+              match nth_error val_stack n with
+              | None => Err Error
+              | Some v => eval_tm inss' (v :: val_stack)
+              end
+          | Uop u =>
+              match val_stack with
+              | [] => Err Error
+              | v :: rst =>
+                  v <- do_uop u v;;
+                  eval_tm inss' (v :: rst)
+              end
+          | Bop b =>
+              match val_stack with
+              | v2 :: v1 :: rst =>
+                  v <- do_bop b v1 v2;;
+                  eval_tm inss' (v :: rst)
+              | _ => Err (ErrorMsg "not enough values on stack")
+              end
+          | Cmp c =>
+              match val_stack with
+              | V_Int i1 :: V_Int i2 :: rst =>
+                  eval_tm inss' (V_Bool (do_cmp c i1 i2) :: rst)
+              | _ => Err Error
+              end
+          end
+      | If thn els nxt =>
+          match val_stack with
+          | V_Bool false :: rst =>
+              v <- eval_tm els rst;;
+              eval_tm nxt (v :: rst)
+          | _ :: rst =>
+              v <- eval_tm thn rst;;
+              eval_tm nxt (v :: rst)
+          | _ => Err Error
+          end
+      end.
+
 Definition eval (f : nat) (prg : stk_prg) :=
   match prg with
-  | Prg funs inss => eval_tm (extract_funs funs) f inss nil
+  | Prg funs inss => eval' (extract_funs funs) f inss nil
   end.
 
 End StackLang.
