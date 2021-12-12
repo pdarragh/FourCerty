@@ -1,14 +1,6 @@
-Require Import Strings.String Lists.List ZArith.
-From ExtLib.Structures Require Import Functor Monad.
-From FourCerty Require Import Maps Result Utility.
+From FourCerty Require Import Utility.
 
-Import Result Utility.
-
-Import FunctorNotation.
-Import ListNotations.
-Import MonadNotation.
-
-Open Scope monad_scope.
+Import Utility.
 
 Module SourceLang.
 

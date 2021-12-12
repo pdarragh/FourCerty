@@ -1,14 +1,18 @@
-Require Import Lists.List Strings.String ZArith.
-From FourCerty Require Import Maps Result.
+Require Export Lists.List Strings.String ZArith.
+From FourCerty Require Export Maps Result.
 
-Import Result.
+Export Result.
+
+From ExtLib.Structures Require Export Functor Monad.
+Export
+  ListNotations
+  FunctorNotation
+  MonadNotation.
+Open Scope monad_scope.
 
 From QuickChick Require Import QuickChick.
 Open Scope qc_scope.
 Set Warnings "-extraction-opaque-accessed,-extraction".
-
-Import ListNotations.
-Import MonadNotation.
 
 Definition lookup {A : Type} (pm : partial_map A) (x : string) : result A :=
   match pm x with

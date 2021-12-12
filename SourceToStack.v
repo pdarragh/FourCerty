@@ -1,13 +1,6 @@
-Require Import Strings.String Lists.List ZArith.
-From ExtLib.Structures Require Import Monad.
-From FourCerty Require Import Result Source StackLang.
+From FourCerty Require Import Utility Source StackLang.
 
-Import Result.
-
-Import ListNotations.
-Import MonadNotation.
-
-Open Scope monad_scope.
+Import Utility.
 
 Module SourceToStack.
 
@@ -58,7 +51,7 @@ Fixpoint compile_tm (gamma : list (option string)) (e : SourceLang.tm) k
   | SourceLang.App l es =>
     let fix compile_tms gamma es :=
       match es with
-      | [] => StackLang.Ins (StackLang.Call l (length es)) k
+      | [] => StackLang.Ins (StackLang.Call l (List.length es)) k
       | e :: es' => compile_tm gamma e (compile_tms (None :: gamma) es')
       end in
     compile_tms gamma es
@@ -68,14 +61,7 @@ Fixpoint compile_tm (gamma : list (option string)) (e : SourceLang.tm) k
 
 Definition compile_defn (defn: SourceLang.defn) : StackLang.stk_fun :=
   match defn with
-  | SourceLang.Defn l xs e => StackLang.Fun l (length xs) (compile_tm (map Some (List.rev xs)) e StackLang.End)
-  end.
-
-Fixpoint join_option_list {A} (lst : list (option A)) : option (list A) :=
-  match lst with
-  | nil => Some nil
-  | None :: _ => None
-  | Some a :: rst => option_map (cons a) (join_option_list rst)
+  | SourceLang.Defn l xs e => StackLang.Fun l (List.length xs) (compile_tm (map Some (List.rev xs)) e StackLang.End)
   end.
 
 Definition compile (src : SourceLang.prg) : StackLang.stk_prg :=
@@ -84,8 +70,7 @@ Definition compile (src : SourceLang.prg) : StackLang.stk_prg :=
   end.
 
 Definition compile_result (res : result SourceLang.val) : result StackLang.ins_val :=
-  v <- res;;
-  ret (compile_val v).
+  compile_val <$> res.
 
 Theorem compiler_correctness : forall (f : nat) (prg : SourceLang.prg),
   compile_result (SourceLang.eval f prg) = StackLang.eval f (compile prg).

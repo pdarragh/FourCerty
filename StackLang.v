@@ -1,13 +1,6 @@
-Require Import Lists.List ZArith.
-From ExtLib.Structures Require Import Monad.
-From FourCerty Require Import Maps Result Utility.
+From FourCerty Require Import Utility.
 
-Import Result Utility.
-
-Import ListNotations.
-Import MonadNotation.
-
-Open Scope monad_scope.
+Import Utility.
 
 Module StackLang.
 

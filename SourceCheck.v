@@ -1,4 +1,6 @@
-Require Import Lists.List Strings.String ZArith.
+From FourCerty Require Import Utility Source.
+
+Import Utility SourceLang.
 
 (* Make string literals work. *)
 Open Scope string_scope.
@@ -9,14 +11,7 @@ Open Scope qc_scope.
 Set Warnings "-extraction-opaque-accessed,-extraction".
 
 (* Notations *)
-Import ListNotations.
-Import MonadNotation.
 Import QcDefaultNotation.
-
-(* SourceLang *)
-From FourCerty Require Import Utility.
-From FourCerty Require Import Source.
-Import SourceLang.
 
 (* Begin! *)
 Module SourceCheck.
