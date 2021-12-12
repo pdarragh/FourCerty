@@ -1,11 +1,28 @@
 Require Import Strings.String Lists.List ZArith.
-From FourCerty Require Import Maps.
+From ExtLib.Structures Require Import Functor Monad.
+From FourCerty Require Import Maps Result Utility.
+
+Import Result Utility.
+
+Import FunctorNotation.
+Import ListNotations.
+Import MonadNotation.
+
+Open Scope monad_scope.
 
 Module SourceLang.
+
+Definition lookup {A : Type} (pm : partial_map A) (x : string) : result A :=
+  match pm x with
+  | None => Err Error
+  | Some v => Ok v
+  end.
 
 Inductive val : Type :=
   | V_Bool (b : bool)
   | V_Int (i : Z).
+
+Notation environment := (partial_map val).
 
 Inductive prim1 : Type :=
   | P_add1
@@ -33,29 +50,21 @@ Inductive tm : Type :=
 Inductive defn : Type :=
   Defn (f : string) (xs : list string) (body : tm).
 
+Notation fundefns := (partial_map defn).
+
 Inductive prg : Type :=
   Prg (funs : list defn) (e : tm).
 
-Inductive err : Type :=
-  | OOF
-  | Error.
-
-Inductive result {A : Type} : Type :=
-  | Err (e : err)
-  | Ok (v : A).
-
-Fixpoint build_env (xs : list string) (vs : list val) :=
+Fixpoint build_env (xs : list string) (vs : list val) : result environment :=
   match xs, vs with
-  | nil,nil => Some empty
+  | nil,nil => Ok empty
   | x :: xs', v :: vs' =>
-    match build_env xs' vs' with
-    | None => None
-    | Some env => Some (update env x v)
-    end
-  | _, _ => None
+      env <- build_env xs' vs';;
+      ret (update env x v)
+  | _, _ => Err Error
   end.
 
-Definition do_prim1 (op : prim1) (v : val) :=
+Definition do_prim1 (op : prim1) (v : val) : result val :=
   match op with
   | P_add1 =>
     match v with
@@ -74,7 +83,7 @@ Definition do_prim1 (op : prim1) (v : val) :=
     end
   end.
 
-Definition do_prim2 (op : prim2) (v1 : val) (v2 : val) :=
+Definition do_prim2 (op : prim2) (v1 : val) (v2 : val) : result val :=
   match op with
   | P_add =>
     match v1, v2 with
@@ -113,85 +122,47 @@ Definition do_prim2 (op : prim2) (v1 : val) (v2 : val) :=
     end
   end.
 
-Definition eval_tm :=
-  fun (funs : partial_map defn) =>
-  fix eval_fuel (f : nat) :=
-  fix eval_tm (t : tm) :=
-  fun (env : partial_map val) =>
-
-  match t with
-  | Const v => Ok v
-  | Var x =>
-      match env x with
-      | None => Err Error
-      | Some v => Ok v
-      end
-  | Prim1 op t' =>
-    match eval_tm t' env with
-    | Err e => Err e
-    | Ok v => do_prim1 op v
-    end
-  | Prim2 op t1 t2 =>
-    match eval_tm t1 env with
-    | Err e => Err e
-    | Ok v1 =>
-      match eval_tm t2 env with
-      | Err e => Err e
-      | Ok v2 => do_prim2 op v1 v2
-      end
-    end
-  | App fn ts =>
-    let fix eval_lst ts :=
-      match ts with
-      | nil => Ok nil
-      | t' :: ts' =>
-        match eval_tm t' env with
-        | Err e => Err e
-        | Ok v =>
-          match eval_lst ts' with
-          | Err e => Err e
-          | Ok vs => Ok (v :: vs)
-          end
-        end
-      end in
-    match eval_lst ts with
-    | Err e => Err e
-    | Ok vs =>
-        match funs fn with
-        | None => Err Error
-        | Some (Defn _ xs t) =>
-            match build_env xs vs with
-            | None => Err Error
-            | Some env' =>
-                match f with
-                | O => Err OOF
-                | S f' => eval_fuel f' t env'
-                end
-            end
-        end
-    end
-  | If t1 t2 t3 =>
-    match eval_tm t1 env with
-    | Ok (V_Bool false) => eval_tm t3 env
-    | Ok _ => eval_tm t2 env
-    | Err e => Err e
-    end
-  | Let x t1 t2 =>
-    match eval_tm t1 env with
-    | Err e => Err e
-    | Ok v => eval_tm t2 (update env x v)
-    end
-  end.
-
-Fixpoint extract_funs (funs : list defn) :=
+Fixpoint extract_funs (funs : list defn) : fundefns :=
   match funs with
   | nil => empty
   | (Defn fn xs t) :: funs' => update (extract_funs funs') fn (Defn fn xs t)
   end.
 
+Definition eval' (funs : fundefns) :=
+  fix eval_fuel (f : nat) :=
+    fix eval_tm (t : tm) (env : environment) : result val :=
+      match t with
+      | Const v => Ok v
+      | Var x => lookup env x
+      | Prim1 op t' =>
+          v <- eval_tm t' env;;
+          do_prim1 op v
+      | Prim2 op t1 t2 =>
+          v1 <- eval_tm t1 env;;
+          v2 <- eval_tm t2 env;;
+          do_prim2 op v1 v2
+      | App fn ts =>
+          vs <- sequenceM (List.map (fun t => eval_tm t env) ts);;
+          '(Defn _ xs t) <- lookup funs fn;;
+          env' <- build_env xs vs;;
+          match f with
+          | O => Err OOF
+          | S f' => eval_fuel f' t env'
+          end
+      | If t1 t2 t3 =>
+          v1 <- eval_tm t1 env;;
+          match v1 with
+          | V_Bool true => eval_tm t2 env
+          | _ => eval_tm t3 env
+          end
+      | Let x t1 t2 =>
+          v <- eval_tm t1 env;;
+          eval_tm t2 (update env x v)
+      end.
+
 Definition eval (f : nat) (p : prg) :=
   match p with
-  | Prg funs t => eval_tm (extract_funs funs) f t empty
+  | Prg funs t => eval' (extract_funs funs) f t empty
   end.
 
 End SourceLang.
