@@ -1,6 +1,13 @@
 Require Import Strings.String Lists.List ZArith.
-From FourCerty Require Import Source StackLang.
+From ExtLib.Structures Require Import Monad.
+From FourCerty Require Import Result Source StackLang.
+
+Import Result.
+
 Import ListNotations.
+Import MonadNotation.
+
+Open Scope monad_scope.
 
 Module SourceToStack.
 
@@ -43,7 +50,7 @@ Fixpoint compile_tm (gamma : list (option string)) (e : SourceLang.tm) k
   | SourceLang.Const v => StackLang.Ins (StackLang.Push (compile_val v)) k
   | SourceLang.Var x =>
     match lookup_depth gamma x with
-    | None => StackLang.Ins StackLang.Err k
+    | None => StackLang.Ins StackLang.StkErr k
     | Some n => StackLang.Ins (StackLang.StkRef n) k
     end
   | SourceLang.Prim1 op e' => compile_tm gamma e' (StackLang.Ins (StackLang.Uop (compile_prim1 op)) k)
@@ -76,12 +83,9 @@ Definition compile (src : SourceLang.prg) : StackLang.stk_prg :=
   | SourceLang.Prg funs e => StackLang.Prg (map compile_defn funs) (compile_tm [] e StackLang.End)
   end.
 
-Definition compile_result (res : SourceLang.result) :=
-  match res with
-  | SourceLang.Err SourceLang.OOF => StackLang.OOF
-  | SourceLang.Err SourceLang.Error => StackLang.Error
-  | SourceLang.Ok v => StackLang.Value (compile_val v)
-  end.
+Definition compile_result (res : result SourceLang.val) : result StackLang.ins_val :=
+  v <- res;;
+  ret (compile_val v).
 
 Theorem compiler_correctness : forall (f : nat) (prg : SourceLang.prg),
   compile_result (SourceLang.eval f prg) = StackLang.eval f (compile prg).
