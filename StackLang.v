@@ -85,6 +85,7 @@ Inductive stk_ins : Type :=
   | Call (l : string) (n : nat)
   | Push (v : ins_val)
   | Pop
+  | Swap
   | StkRef (n : nat)
   | Uop (u : ins_uop)
   | Bop (b : ins_bop)
@@ -109,13 +110,9 @@ Fixpoint extract_funs (funs : list stk_fun) :=
 
 Definition eval' (funs : partial_map stk_fun) :=
   fix eval_fuel (f : nat) :=
-    fix eval_tm (inss : stk_tm) (val_stack : list ins_val) : result ins_val :=
+    fix eval_tm (inss : stk_tm) (val_stack : list ins_val) : result (list ins_val) :=
       match inss with
-      | End =>
-          match val_stack with
-          | [] => Err Error
-          | v :: _ => Ok v
-          end
+      | End => Ok val_stack
       | Ins ins inss' =>
           match ins with
           | StkErr => Err Error
@@ -129,8 +126,8 @@ Definition eval' (funs : partial_map stk_fun) :=
                    then match f with
                         | O => Err OOF
                         | S f' =>
-                            v <- eval_fuel f' inss'' args;;
-                            eval_tm inss' rst
+                            vs <- eval_fuel f' inss'' args;;
+                            eval_tm inss' (vs ++ rst)
                         end
                    else Err Error
           | Push v => eval_tm inss' (v :: val_stack)
@@ -138,6 +135,12 @@ Definition eval' (funs : partial_map stk_fun) :=
               match val_stack with
               | [] => Err Error
               | v :: rst => eval_tm inss' rst
+              end
+          | Swap =>
+              match val_stack with
+              | v1 :: v2 :: rst =>
+                  eval_tm inss' (v2 :: v1 :: rst)
+              | _ => Err Error
               end
           | StkRef n =>
               match nth_error val_stack n with
@@ -168,11 +171,11 @@ Definition eval' (funs : partial_map stk_fun) :=
       | If thn els nxt =>
           match val_stack with
           | V_Bool false :: rst =>
-              v <- eval_tm els rst;;
-              eval_tm nxt (v :: rst)
+              vs <- eval_tm els rst;;
+              eval_tm nxt vs
           | _ :: rst =>
-              v <- eval_tm thn rst;;
-              eval_tm nxt (v :: rst)
+              vs <- eval_tm thn rst;;
+              eval_tm nxt vs
           | _ => Err Error
           end
       end.

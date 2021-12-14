@@ -1,10 +1,13 @@
+Require Import Strings.String Lists.List ZArith.
+From ExtLib.Structures Require Import Monad.
 From FourCerty Require Import Utility Source StackLang.
 
 Import Utility.
 
-Module SourceToStack.
+Import ListNotations.
+Import MonadNotation.
 
-Definition left_append {A} (l1 : list A) (l2 : list A) := l2 ++ l1.
+Module SourceToStack.
 
 Definition compile_val (v : SourceLang.val) :=
   match v with
@@ -69,13 +72,230 @@ Definition compile (src : SourceLang.prg) : StackLang.stk_prg :=
   | SourceLang.Prg funs e => StackLang.Prg (map compile_defn funs) (compile_tm [] e StackLang.End)
   end.
 
-Definition compile_result (res : result SourceLang.val) : result StackLang.ins_val :=
-  compile_val <$> res.
+Definition compile_result (res : result SourceLang.val) (rst : list StackLang.ins_val)
+    : result (list StackLang.ins_val) :=
+  v <- res;;
+  ret ([compile_val v] ++ rst).
+
+Fixpoint stk_append inss1 inss2 :=
+  match inss1 with
+  | StackLang.End => inss2
+  | StackLang.Ins ins rst => StackLang.Ins ins (stk_append rst inss2)
+  | StackLang.If thn els rst => StackLang.If thn els (stk_append rst inss2)
+  end.
+
+Lemma seq_eval_ins_end :
+    forall (funs : partial_map StackLang.stk_fun)
+           (f : nat)
+           (ins : StackLang.stk_ins)
+           (inss : StackLang.stk_tm)
+           (stk : list StackLang.ins_val),
+  StackLang.eval' funs f (StackLang.Ins ins inss) stk
+  =
+  vs <- StackLang.eval' funs f (StackLang.Ins ins StackLang.End) stk;;
+  StackLang.eval' funs f inss vs.
+Proof.
+  intros funs f ins inss stk.
+  destruct ins; try (induction f; reflexivity).
+  - (* Call *)
+    induction f.
+    + simpl. destruct (Datatypes.length (firstn n stk) <? n); [reflexivity|].
+      destruct (Utility.lookup funs l); [reflexivity|].
+      destruct v. destruct (n0 =? n); reflexivity.
+    + simpl. destruct (Datatypes.length (firstn n stk) <? n); [reflexivity|].
+      destruct (Utility.lookup funs l); [reflexivity|].
+      destruct v. destruct (n0 =? n); [|reflexivity].
+      destruct (StackLang.eval' funs f ins (firstn n stk)); reflexivity.
+  - (* Pop *)
+    induction f; destruct stk; reflexivity.
+  - (* Swap *)
+    induction f; simpl; destruct stk; [reflexivity| |reflexivity|];
+    destruct stk; [reflexivity| |reflexivity|]; reflexivity.
+  - (* StkRef *)
+    induction f; simpl; destruct (nth_error stk n); reflexivity.
+  - (* Uop *)
+    induction f; simpl; destruct stk; [reflexivity| |reflexivity|];
+    destruct (StackLang.do_uop _ _); reflexivity.
+  - (* Bop *)
+    induction f; simpl; destruct stk; [reflexivity| |reflexivity|];
+    destruct stk; [reflexivity| |reflexivity|];
+    destruct (StackLang.do_bop _ _); reflexivity.
+  - (* Cmp *)
+    induction f; simpl; destruct stk; [reflexivity| |reflexivity|]; destruct i;
+    destruct stk; try reflexivity;
+    destruct i0; reflexivity.
+Qed.
+
+Lemma eval_if_false :
+    forall (funs : partial_map StackLang.stk_fun)
+           (f : nat)
+           (inss1 : StackLang.stk_tm)
+           (inss2 : StackLang.stk_tm)
+           (inss3 : StackLang.stk_tm)
+           (stk : list StackLang.ins_val),
+  StackLang.eval' funs f (StackLang.If inss1 inss2 inss3) (StackLang.V_Bool false :: stk)
+  =
+  vs <- StackLang.eval' funs f inss2 stk;;
+  StackLang.eval' funs f inss3 vs.
+Proof.
+  intros funs f inss1 inss2 inss3 stk.
+  induction f; reflexivity.
+Qed.
+
+Lemma eval_if_true :
+    forall (funs : partial_map StackLang.stk_fun)
+           (f : nat)
+           (inss1 : StackLang.stk_tm)
+           (inss2 : StackLang.stk_tm)
+           (inss3 : StackLang.stk_tm)
+           (v : StackLang.ins_val)
+           (stk : list StackLang.ins_val),
+  v <> StackLang.V_Bool false ->
+    StackLang.eval' funs f (StackLang.If inss1 inss2 inss3) (v :: stk)
+    =
+    vs <- StackLang.eval' funs f inss1 stk;;
+    StackLang.eval' funs f inss3 vs.
+Proof.
+  intros funs f inss1 inss2 inss3 v stk H.
+  destruct v.
+  - induction f; reflexivity.
+  - destruct b.
+    + induction f; reflexivity.
+    + contradiction.
+Qed.
+
+Lemma seq_eval_if_end : 
+    forall (funs : partial_map StackLang.stk_fun)
+           (f : nat)
+           (inss1 : StackLang.stk_tm)
+           (inss2 : StackLang.stk_tm)
+           (inss3 : StackLang.stk_tm)
+           (stk : list StackLang.ins_val),
+  StackLang.eval' funs f (StackLang.If inss1 inss2 inss3) stk
+  =
+  vs <- StackLang.eval' funs f (StackLang.If inss1 inss2 StackLang.End) stk;;
+  StackLang.eval' funs f inss3 vs.
+Proof.
+  intros funs f inss1 inss2 inss3 stk.
+  destruct stk; [induction f; reflexivity|].
+  destruct i.
+  - induction f;
+    rewrite eval_if_true; try discriminate;
+    rewrite eval_if_true; try discriminate;
+    destruct (StackLang.eval' funs _ inss1 stk); reflexivity.
+  - destruct b.
+    + induction f;
+      rewrite eval_if_true; try discriminate;
+      rewrite eval_if_true; try discriminate;
+      destruct (StackLang.eval' funs _ inss1 stk); reflexivity.
+    + induction f;
+      rewrite eval_if_false; rewrite eval_if_false;
+      destruct (StackLang.eval' funs _ inss2 stk); reflexivity.
+Qed.
+
+Lemma seq_eval_append :
+    forall (funs : partial_map StackLang.stk_fun)
+           (f : nat)
+           (tm1 : StackLang.stk_tm)
+           (tm2 : StackLang.stk_tm)
+           (stk : list StackLang.ins_val),
+  StackLang.eval' funs f (stk_append tm1 tm2) stk
+  =
+  vs <- StackLang.eval' funs f tm1 stk;;
+  StackLang.eval' funs f tm2 vs.
+Proof.
+  intros funs f tm1.
+  induction tm1.
+  - induction f; reflexivity.
+  - intros tm2 stk.
+    simpl (stk_append (StackLang.Ins _ _) _).
+    rewrite seq_eval_ins_end.
+    rewrite seq_eval_ins_end with (inss:=tm1).
+    destruct (StackLang.eval' _ _ (StackLang.Ins _ _) _); [reflexivity|].
+    simpl. rewrite IHtm1.
+    reflexivity.
+  - intros tm2 stk.
+    simpl (stk_append (StackLang.If _ _ _) _).
+    rewrite seq_eval_if_end.
+    rewrite seq_eval_if_end with (inss3:=tm1_3).
+    destruct (StackLang.eval' _ _ (StackLang.If _ _ _) _); [reflexivity|].
+    simpl. rewrite IHtm1_3.
+    reflexivity.
+Qed.
+
+Lemma seq_eval_compile :
+    forall (funs : partial_map StackLang.stk_fun)
+           (f : nat)
+           (e : SourceLang.tm)
+           (inss : StackLang.stk_tm)
+           (gamma : list (option string))
+           (stk : list StackLang.ins_val),
+  StackLang.eval' funs f (compile_tm gamma e inss) stk
+  =
+  vs <- StackLang.eval' funs f (compile_tm gamma e StackLang.End) stk;;
+  StackLang.eval' funs f inss vs.
+Proof.
+  intros funs f e.
+  induction e.
+  - (* Const *) induction f; reflexivity.
+  - (* Var *) admit.
+  - (* Prim1 *)
+    intros inss gamma stk.
+    simpl compile_tm.
+    rewrite IHe.
+    rewrite IHe with (inss:=(StackLang.Ins (StackLang.Uop (compile_prim1 op)) StackLang.End)).
+    destruct (StackLang.eval' funs f (compile_tm gamma e StackLang.End) stk); [reflexivity|].
+    simpl. rewrite seq_eval_ins_end. reflexivity.
+  - (* Prim2 *)
+    admit.
+  - (* App *)
+    admit.
+  - (* If *)
+    admit.
+  - (* Let *)
+    admit.
+Admitted.
+
+Lemma compiler_correct_no_fuel :
+    forall (s_funs : partial_map SourceLang.defn)
+           (sl_funs : partial_map StackLang.stk_fun)
+           (e : SourceLang.tm)
+           (gamma : list (option string))
+           (env : SourceLang.environment)
+           (stk : list StackLang.ins_val),
+  compile_result (SourceLang.eval' empty 0 e env) stk
+  =
+  StackLang.eval' empty 0 (compile_tm gamma e StackLang.End) stk.
+Proof.
+  intros.
+  induction e.
+  - (* Const *) reflexivity.
+  - (* Var *)   admit.
+  - (* Prim1 *)
+    unfold SourceLang.eval'.
+    destruct (SourceLang.eval' s_funs 0 e env) eqn:E.
+    + admit.
+    + admit.
+  - (* Prim2 *) admit.
+  - (* App *)   admit.
+  - (* If *)    admit.
+  - (* Let *)   admit.
+Admitted.
 
 Theorem compiler_correctness : forall (f : nat) (prg : SourceLang.prg),
-  compile_result (SourceLang.eval f prg) = StackLang.eval f (compile prg).
+  compile_result (SourceLang.eval f prg) [] = StackLang.eval f (compile prg).
 Proof.
   intros f prg.
+  induction prg.
+  unfold compile, SourceLang.eval, StackLang.eval.
+  induction e.
+  - (* Const *) induction f; reflexivity.
+  - (* Var *)   induction f; reflexivity.
+  - (* Prim1 *) admit.
+  - (* Prim2 *) admit.
+  - (* App *)   admit.
+  - (* If *)    admit.
+  - (* Let *)   admit.
 Admitted.
 
 End SourceToStack.
