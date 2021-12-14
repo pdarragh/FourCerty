@@ -45,8 +45,8 @@ Definition do_uop (u : ins_uop) (v : ins_val) : result ins_val :=
     end
   | U_Not =>
     match v with
-    | V_Bool b => Ok (V_Bool (negb b))
-    | _ => Err Error
+    | V_Bool false => Ok (V_Bool true)
+    | _ => Ok (V_Bool false)
     end
   end.
 
@@ -163,7 +163,7 @@ Definition eval' (funs : partial_map stk_fun) :=
               end
           | Cmp c =>
               match val_stack with
-              | V_Int i1 :: V_Int i2 :: rst =>
+              | V_Int i2 :: V_Int i1 :: rst =>
                   eval_tm inss' (V_Bool (do_cmp c i1 i2) :: rst)
               | _ => Err Error
               end
