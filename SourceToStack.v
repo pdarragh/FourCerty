@@ -445,14 +445,10 @@ Proof.
   intros f prg.
   induction prg.
   unfold compile, SourceLang.eval, StackLang.eval.
-  induction e.
-  - (* Const *) induction f; reflexivity.
-  - (* Var *)   induction f; reflexivity.
-  - (* Prim1 *) admit.
-  - (* Prim2 *) admit.
-  - (* App *)   admit.
-  - (* If *)    admit.
-  - (* Let *)   admit.
-Admitted.
+  induction e;
+    induction f;
+    try rewrite compile_tm_correct with (sl_funs := StackLang.extract_funs (map compile_defn funs)) (gamma := []);
+    reflexivity.
+Qed.
 
 End SourceToStack.
