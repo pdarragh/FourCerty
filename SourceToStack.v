@@ -49,8 +49,10 @@ Fixpoint compile_tm (gamma : list (option string)) (e : SourceLang.tm) k
     | None => StackLang.Ins StackLang.StkErr k
     | Some n => StackLang.Ins (StackLang.StkRef n) k
     end
-  | SourceLang.Prim1 op e' => compile_tm gamma e' (StackLang.Ins (StackLang.Uop (compile_prim1 op)) k)
-  | SourceLang.Prim2 op e1 e2 => compile_tm gamma e1 (compile_tm (None :: gamma) e2 (StackLang.Ins (compile_prim2 op) k))
+  | SourceLang.Prim1 op e' =>
+      compile_tm gamma e' (StackLang.Ins (StackLang.Uop (compile_prim1 op)) k)
+  | SourceLang.Prim2 op e1 e2 =>
+      compile_tm gamma e1 (compile_tm (None :: gamma) e2 (StackLang.Ins (compile_prim2 op) k))
   | SourceLang.App l es =>
     let fix compile_tms gamma es :=
       match es with
@@ -58,18 +60,24 @@ Fixpoint compile_tm (gamma : list (option string)) (e : SourceLang.tm) k
       | e :: es' => compile_tm gamma e (compile_tms (None :: gamma) es')
       end in
     compile_tms gamma es
-  | SourceLang.If e1 e2 e3 => compile_tm gamma e1 (StackLang.If (compile_tm gamma e2 StackLang.End) (compile_tm gamma e3 StackLang.End) k)
-  | SourceLang.Let x e1 e2 => compile_tm gamma e1 (compile_tm (Some x :: gamma) e2 (StackLang.Ins StackLang.Swap (StackLang.Ins StackLang.Pop k)))
+  | SourceLang.If e1 e2 e3 =>
+      compile_tm gamma e1 (StackLang.If (compile_tm gamma e2 StackLang.End)
+                                        (compile_tm gamma e3 StackLang.End) k)
+  | SourceLang.Let x e1 e2 =>
+      compile_tm gamma e1 (compile_tm (Some x :: gamma) e2 (StackLang.Ins StackLang.Swap
+                                                           (StackLang.Ins StackLang.Pop k)))
   end.
 
 Definition compile_defn (defn: SourceLang.defn) : StackLang.stk_fun :=
   match defn with
-  | SourceLang.Defn l xs e => StackLang.Fun l (List.length xs) (compile_tm (map Some (List.rev xs)) e StackLang.End)
+  | SourceLang.Defn l xs e =>
+      StackLang.Fun l (List.length xs) (compile_tm (map Some (List.rev xs)) e StackLang.End)
   end.
 
 Definition compile (src : SourceLang.prg) : StackLang.stk_prg :=
   match src with
-  | SourceLang.Prg funs e => StackLang.Prg (map compile_defn funs) (compile_tm [] e StackLang.End)
+  | SourceLang.Prg funs e =>
+      StackLang.Prg (map compile_defn funs) (compile_tm [] e StackLang.End)
   end.
 
 Definition compile_result (res : result SourceLang.val) (rst : list StackLang.ins_val)
@@ -273,11 +281,13 @@ Proof.
     destruct (StackLang.eval' funs f (compile_tm _ e1 _)); [reflexivity|].
     simpl.
     rewrite IHe2.
-    rewrite IHe2 with (inss:=(StackLang.Ins StackLang.Swap (StackLang.Ins StackLang.Pop StackLang.End))).
+    rewrite IHe2 with (inss:=(StackLang.Ins StackLang.Swap
+                               (StackLang.Ins StackLang.Pop StackLang.End))).
     destruct (StackLang.eval' _ _ (compile_tm _ e2 _)); [reflexivity|].
     simpl.
     assert (H: (StackLang.Ins StackLang.Swap (StackLang.Ins StackLang.Pop inss))
-               = (stk_append (StackLang.Ins StackLang.Swap (StackLang.Ins StackLang.Pop StackLang.End))
+               = (stk_append (StackLang.Ins StackLang.Swap
+                               (StackLang.Ins StackLang.Pop StackLang.End))
                              inss)). { reflexivity. }
     rewrite H. rewrite seq_eval_append. reflexivity.
 Admitted.
