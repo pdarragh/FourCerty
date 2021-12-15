@@ -172,7 +172,7 @@ Proof.
     + contradiction.
 Qed.
 
-Lemma seq_eval_if_end : 
+Lemma seq_eval_if_end :
     forall (funs : partial_map StackLang.stk_fun)
            (f : nat)
            (inss1 : StackLang.stk_tm)
@@ -370,11 +370,11 @@ Lemma compile_tm_correct :
            (gamma : list (option string))
            (env : SourceLang.environment)
            (stk : list StackLang.ins_val),
-  compile_result (SourceLang.eval' empty f e env) stk
+  compile_result (SourceLang.eval' s_funs f e env) stk
   =
-  StackLang.eval' empty f (compile_tm gamma e StackLang.End) stk.
+  StackLang.eval' sl_funs f (compile_tm gamma e StackLang.End) stk.
 Proof.
-  intros _ _ f e.
+  intros s_funs sl_funs f e.
   induction e.
   - (* Const *) induction f; reflexivity.
   - (* Var *)   admit.
