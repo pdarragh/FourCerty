@@ -138,8 +138,8 @@ Definition eval' (funs : fundefns) :=
       | If t1 t2 t3 =>
           v1 <- eval_tm t1 env;;
           match v1 with
-          | V_Bool true => eval_tm t2 env
-          | _ => eval_tm t3 env
+          | V_Bool false => eval_tm t3 env
+          | _ => eval_tm t2 env
           end
       | Let x t1 t2 =>
           v <- eval_tm t1 env;;

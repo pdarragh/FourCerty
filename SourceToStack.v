@@ -59,7 +59,7 @@ Fixpoint compile_tm (gamma : list (option string)) (e : SourceLang.tm) k
       end in
     compile_tms gamma es
   | SourceLang.If e1 e2 e3 => compile_tm gamma e1 (StackLang.If (compile_tm gamma e2 StackLang.End) (compile_tm gamma e3 StackLang.End) k)
-  | SourceLang.Let x e1 e2 => compile_tm gamma e1 (compile_tm (Some x :: gamma) e2 k)
+  | SourceLang.Let x e1 e2 => compile_tm gamma e1 (compile_tm (Some x :: gamma) e2 (StackLang.Ins StackLang.Swap (StackLang.Ins StackLang.Pop k)))
   end.
 
 Definition compile_defn (defn: SourceLang.defn) : StackLang.stk_fun :=
@@ -271,7 +271,15 @@ Proof.
     rewrite IHe1.
     rewrite IHe1 with (inss:=(compile_tm _ _ _)).
     destruct (StackLang.eval' funs f (compile_tm _ e1 _)); [reflexivity|].
-    simpl. rewrite IHe2. reflexivity.
+    simpl.
+    rewrite IHe2.
+    rewrite IHe2 with (inss:=(StackLang.Ins StackLang.Swap (StackLang.Ins StackLang.Pop StackLang.End))).
+    destruct (StackLang.eval' _ _ (compile_tm _ e2 _)); [reflexivity|].
+    simpl.
+    assert (H: (StackLang.Ins StackLang.Swap (StackLang.Ins StackLang.Pop inss))
+               = (stk_append (StackLang.Ins StackLang.Swap (StackLang.Ins StackLang.Pop StackLang.End))
+                             inss)). { reflexivity. }
+    rewrite H. rewrite seq_eval_append. reflexivity.
 Admitted.
 
 Lemma eval_prim1 : forall funs f op e env,
@@ -292,6 +300,29 @@ Lemma eval_prim2 : forall funs f op e1 e2 env,
     SourceLang.do_prim2 op v1 v2.
 Proof.
   intros funs f op e env.
+  induction f; reflexivity.
+Qed.
+
+Lemma eval_if : forall funs f e1 e2 e3 env,
+    SourceLang.eval' funs f (SourceLang.If e1 e2 e3) env
+    =
+    v1 <- SourceLang.eval' funs f e1 env;;
+    match v1 with
+    | SourceLang.V_Bool false => SourceLang.eval' funs f e3 env
+    | _ => SourceLang.eval' funs f e2 env
+    end.
+Proof.
+  intros funs f e1 e2 e3 env.
+  induction f; reflexivity.
+Qed.
+
+Lemma eval_let : forall funs f x e1 e2 env,
+    SourceLang.eval' funs f (SourceLang.Let x e1 e2) env
+    =
+    v <- SourceLang.eval' funs f e1 env;;
+    SourceLang.eval' funs f e2 (update env x v).
+Proof.
+  intros funs f x e1 e2 env.
   induction f; reflexivity.
 Qed.
 
@@ -358,8 +389,44 @@ Proof.
     destruct (SourceLang.eval' _ _ e2 _); [reflexivity|].
     simpl. apply compile_prim2_correct.
   - (* App *)   admit.
-  - (* If *)    admit.
-  - (* Let *)   admit.
+  - (* If *)
+    intros gamma env stk.
+    simpl compile_tm.
+    rewrite seq_eval_compile.
+    rewrite <- IHe1 with gamma env stk.
+    rewrite eval_if.
+    destruct (SourceLang.eval' _ _ e1 _); [reflexivity|].
+    simpl. destruct v.
+    + (* v is bool *)
+      destruct b.
+      * (* true *)
+        rewrite IHe2 with gamma env stk.
+        simpl compile_val.
+        rewrite eval_if_true; [|discriminate].
+        destruct (StackLang.eval' _ _ (compile_tm _ e2 _) _); [reflexivity|].
+        induction f; reflexivity.
+      * (* false *)
+        rewrite IHe3 with gamma env stk.
+        simpl compile_val.
+        rewrite eval_if_false.
+        destruct (StackLang.eval' _ _ (compile_tm _ e3 _) _); [reflexivity|].
+        induction f; reflexivity.
+    + rewrite IHe2 with gamma env stk.
+      simpl compile_val.
+      rewrite eval_if_true; [|discriminate].
+      destruct (StackLang.eval' _ _ (compile_tm _ e2 _) _); [reflexivity|].
+      induction f; reflexivity.
+  - (* Let *)
+    intros gamma env stk.
+    simpl compile_tm.
+    rewrite seq_eval_compile.
+    rewrite <- IHe1 with gamma env stk.
+    rewrite eval_let.
+    destruct (SourceLang.eval' _ _ e1 _); [reflexivity|].
+    simpl. rewrite seq_eval_compile.
+    simpl. rewrite <- IHe2 with (Some x :: gamma) (x |-> v; env) (compile_val v :: stk).
+    destruct (SourceLang.eval' _ _ e2 _); [reflexivity|].
+    induction f; reflexivity.
 Admitted.
 
 Theorem compiler_correctness : forall (f : nat) (prg : SourceLang.prg),
