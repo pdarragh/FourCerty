@@ -85,4 +85,16 @@ Inductive eval_tm_R : nat -> partial_map stk_fun -> stk_tm -> list ins_val -> li
       eval_tm_R f funs nxt vs1 vs2 ->
       eval_tm_R f funs (If thn els nxt) (v :: rst) vs2.
 
+Inductive extract_funs_R : list stk_fun -> partial_map stk_fun -> Prop :=
+  | EF_Nil : extract_funs_R [] empty
+  | EF_Cons : forall fs es l n ins,
+      extract_funs_R fs es ->
+      extract_funs_R ((Fun l n ins) :: fs) (update es l (Fun l n ins)).
+
+Inductive eval_R : nat -> stk_prg -> list ins_val -> Prop :=
+  | E_Prg : forall f fs es inss v,
+      extract_funs_R fs es ->
+      eval_tm_R f es inss [] v ->
+      eval_R f (Prg fs inss) v.
+
 End StackLangRel.
