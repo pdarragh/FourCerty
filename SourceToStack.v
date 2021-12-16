@@ -246,7 +246,10 @@ Proof.
   intros funs f e.
   induction e.
   - (* Const *) induction f; reflexivity.
-  - (* Var *) admit.
+  - (* Var *)
+    intros inss gamma stk.
+    simpl compile_tm.
+    destruct (lookup_depth gamma x); rewrite seq_eval_ins_end; reflexivity.
   - (* Prim1 *)
     intros inss gamma stk.
     simpl compile_tm.
@@ -265,7 +268,8 @@ Proof.
     rewrite IHe2 with (inss:=(StackLang.Ins _ _)).
     destruct (StackLang.eval' funs f (compile_tm _ e2 _) v); [reflexivity|].
     simpl. rewrite seq_eval_ins_end. reflexivity.
-  - (* App *) admit.
+  - (* App *)
+    admit.
   - (* If *)
     intros inss gamma stk.
     simpl compile_tm.
@@ -336,6 +340,13 @@ Proof.
   induction f; reflexivity.
 Qed.
 
+Lemma eval_var : forall funs f x env,
+    SourceLang.eval' funs f (SourceLang.Var x) env = lookup env x.
+Proof.
+  intros funs f x env.
+  induction f; reflexivity.
+Qed.
+
 Lemma compile_prim1_correct : forall op v stk,
     compile_result (SourceLang.do_prim1 op v) stk
     =
@@ -362,79 +373,177 @@ Proof.
   destruct op; destruct v1; destruct v2; induction f; reflexivity.
 Qed.
 
+Inductive consistent_envs :
+    SourceLang.environment -> list (option string) -> list StackLang.ins_val -> Prop :=
+  | consistent_empty : consistent_envs empty [] []
+  | consistent_var env gamma stk x v (c : consistent_envs env gamma stk) :
+      consistent_envs (x |-> v; env) (Some x :: gamma) (compile_val v :: stk)
+  | consistent_val env gamma stk v (c : consistent_envs env gamma stk) :
+      consistent_envs env (None :: gamma) (v :: stk).
+
+Lemma consistent_envs_in_scope :
+    forall env gamma stk,
+      consistent_envs env gamma stk ->
+        forall x v, lookup env x = Ok v ->
+          exists n, lookup_depth gamma x = Some n /\ nth_error stk n = Some (compile_val v).
+Proof.
+  intros env gamma stk HC.
+  induction HC.
+  - (* empty *)
+    intros x v H. discriminate.
+  - (* push var *)
+    intros x0 v0 H. simpl.
+    destruct (eqb x0 x) eqn:E.
+    + (* var on top of stack *)
+      apply eqb_eq in E as Heq.
+      unfold lookup in H.
+      rewrite Heq in H.
+      rewrite update_eq in H.
+      injection H as H.
+      exists 0.
+      simpl. rewrite H.
+      split; reflexivity.
+    + (* var lower *)
+      apply eqb_neq in E as Hneq.
+      unfold lookup in H, IHHC.
+      rewrite update_neq in H; [|auto].
+      apply IHHC in H as [n [H1 H2]].
+      rewrite H1.
+      exists (S n).
+      split.
+      * reflexivity.
+      * assumption.
+  - intros x v0 H. simpl.
+    apply IHHC in H as [n [H1 H2]].
+    rewrite H1.
+    exists (S n).
+    split.
+    * reflexivity.
+    * assumption.
+Qed.
+
+Lemma consistent_envs_err :
+    forall env gamma stk,
+      consistent_envs env gamma stk ->
+        forall x, lookup env x = Err Error -> lookup_depth gamma x = None.
+Proof.
+  intros env gamma stk HC.
+  induction HC.
+  - (* empty *)
+    intros x H. reflexivity.
+  - (* push var *)
+    intros x0 H. simpl.
+    destruct (x0 =? x)%string eqn:E.
+    + apply eqb_eq in E as Heq.
+      unfold lookup in H.
+      rewrite Heq in H.
+      rewrite update_eq in H.
+      discriminate.
+    + apply eqb_neq in E as Hneq.
+      unfold lookup in H, IHHC.
+      rewrite update_neq in H; [|auto].
+      specialize IHHC with x0.
+      apply IHHC in H.
+      rewrite H.
+      reflexivity.
+  - (* push val *)
+    intros x H.
+    simpl.
+    rewrite (IHHC x H).
+    reflexivity.
+Qed.
+
 Lemma compile_tm_correct :
     forall (s_funs : partial_map SourceLang.defn)
            (sl_funs : partial_map StackLang.stk_fun)
            (f : nat)
            (e : SourceLang.tm)
-           (gamma : list (option string))
            (env : SourceLang.environment)
+           (gamma : list (option string))
            (stk : list StackLang.ins_val),
-  compile_result (SourceLang.eval' s_funs f e env) stk
-  =
-  StackLang.eval' sl_funs f (compile_tm gamma e StackLang.End) stk.
+  consistent_envs env gamma stk ->
+    compile_result (SourceLang.eval' s_funs f e env) stk
+    =
+    StackLang.eval' sl_funs f (compile_tm gamma e StackLang.End) stk.
 Proof.
   intros s_funs sl_funs f e.
   induction e.
   - (* Const *) induction f; reflexivity.
-  - (* Var *)   admit.
+  - (* Var *)
+    intros env gamma stk HC.
+    simpl compile_tm.
+    rewrite eval_var.
+    destruct (lookup env x) eqn:E.
+    + assert (Herr : e = Error).
+      { unfold lookup in E.
+        destruct (env x); [discriminate|].
+        injection E as E. auto. }
+      rewrite Herr in *.
+      apply (consistent_envs_err env gamma stk HC) in E as Hdepth.
+      rewrite Hdepth.
+      induction f; reflexivity.
+    + apply (consistent_envs_in_scope env gamma stk HC) in E as [n [H1 H2]].
+      rewrite H1.
+      induction f; simpl; rewrite H2; reflexivity.
   - (* Prim1 *)
-    intros gamma env stk.
+    intros env gamma stk HC.
     simpl compile_tm.
     rewrite seq_eval_compile.
-    rewrite <- IHe with gamma env stk.
+    rewrite <- (IHe env gamma stk HC).
     rewrite eval_prim1.
     destruct (SourceLang.eval' _ _ e _); [reflexivity|].
     simpl. rewrite compile_prim1_correct. induction f; reflexivity.
   - (* Prim2 *)
-    intros gamma env stk.
+    intros env gamma stk HC.
     simpl compile_tm.
     rewrite seq_eval_compile.
-    rewrite <- IHe1 with gamma env stk.
+    rewrite <- (IHe1 env gamma stk HC).
     rewrite eval_prim2.
     destruct (SourceLang.eval' _ _ e1 _); [reflexivity|].
     simpl.
     rewrite seq_eval_compile.
-    rewrite <- IHe2 with (None :: gamma) env (compile_val v :: stk).
+    rewrite <- (IHe2 env (None :: gamma) (compile_val v :: stk)
+                     (consistent_val env gamma stk (compile_val v) HC)).
     destruct (SourceLang.eval' _ _ e2 _); [reflexivity|].
     simpl. apply compile_prim2_correct.
   - (* App *)   admit.
   - (* If *)
-    intros gamma env stk.
+    intros env gamma stk HC.
     simpl compile_tm.
     rewrite seq_eval_compile.
-    rewrite <- IHe1 with gamma env stk.
+    rewrite <- (IHe1 env gamma stk HC).
     rewrite eval_if.
     destruct (SourceLang.eval' _ _ e1 _); [reflexivity|].
     simpl. destruct v.
     + (* v is bool *)
       destruct b.
       * (* true *)
-        rewrite IHe2 with gamma env stk.
+        rewrite (IHe2 env gamma stk HC).
         simpl compile_val.
         rewrite eval_if_true; [|discriminate].
         destruct (StackLang.eval' _ _ (compile_tm _ e2 _) _); [reflexivity|].
         induction f; reflexivity.
       * (* false *)
-        rewrite IHe3 with gamma env stk.
+        rewrite (IHe3 env gamma stk HC).
         simpl compile_val.
         rewrite eval_if_false.
         destruct (StackLang.eval' _ _ (compile_tm _ e3 _) _); [reflexivity|].
         induction f; reflexivity.
-    + rewrite IHe2 with gamma env stk.
+    + rewrite (IHe2 env gamma stk HC).
       simpl compile_val.
       rewrite eval_if_true; [|discriminate].
       destruct (StackLang.eval' _ _ (compile_tm _ e2 _) _); [reflexivity|].
       induction f; reflexivity.
   - (* Let *)
-    intros gamma env stk.
+    intros env gamma stk HC.
     simpl compile_tm.
     rewrite seq_eval_compile.
-    rewrite <- IHe1 with gamma env stk.
+    rewrite <- (IHe1 env gamma stk HC).
     rewrite eval_let.
     destruct (SourceLang.eval' _ _ e1 _); [reflexivity|].
     simpl. rewrite seq_eval_compile.
-    simpl. rewrite <- IHe2 with (Some x :: gamma) (x |-> v; env) (compile_val v :: stk).
+    simpl. rewrite <- (IHe2 (x |-> v; env) (Some x :: gamma) (compile_val v :: stk)
+                            (consistent_var env gamma stk x v HC)).
     destruct (SourceLang.eval' _ _ e2 _); [reflexivity|].
     induction f; reflexivity.
 Admitted.
@@ -445,10 +554,8 @@ Proof.
   intros f prg.
   induction prg.
   unfold compile, SourceLang.eval, StackLang.eval.
-  induction e;
-    induction f;
-    try rewrite compile_tm_correct with (sl_funs := StackLang.extract_funs (map compile_defn funs)) (gamma := []);
-    reflexivity.
+  apply compile_tm_correct.
+  apply consistent_empty.
 Qed.
 
 End SourceToStack.
