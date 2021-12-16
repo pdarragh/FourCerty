@@ -1,4 +1,4 @@
-From FourCerty Require Import Utility Source StackLang.
+From FourCerty Require Import Utility Source StackLang SourceRel StackLangRel.
 
 Import Utility.
 
@@ -92,4 +92,54 @@ Inductive compile_R : SourceLang.prg -> StackLang.stk_prg -> Prop :=
       compile_tm_R [] StackLang.End e t ->
       compile_R (SourceLang.Prg fs e) (StackLang.Prg cfs t).
 
+Inductive compile_result_R : SourceLang.val -> list StackLang.ins_val -> list StackLang.ins_val -> Prop :=
+  | CR_Val : forall s_v sl_v rst,
+      compile_val_R s_v sl_v ->
+      compile_result_R s_v rst (sl_v :: rst).
+
 End STSRel.
+
+Module STSProof.
+
+Import STSRel.
+
+Lemma compile_eval_correct : forall (f : nat)
+                               (s_prg : SourceLang.prg)
+                               (s_v : SourceLang.val)
+                               (sl_vs : list StackLang.ins_val),
+    SourceRel.eval_R f s_prg s_v ->
+    compile_result_R s_v [] sl_vs.
+Proof.
+  intros f s_prg.
+  destruct s_prg.
+  destruct funs.
+  - intros.
+    destruct sl_vs.
+    + admit.
+    + admit. (* apply CR_Val with (sl_v := i). *)
+Admitted.
+
+Lemma eval_compile_correct : forall (f : nat)
+                               (s_prg : SourceLang.prg)
+                               (sl_prg : StackLang.stk_prg)
+                               (sl_vs : list StackLang.ins_val),
+    compile_R s_prg sl_prg ->
+    StackLangRel.eval_R f sl_prg sl_vs.
+Admitted.
+
+Theorem compiler_correctness : forall (f : nat)
+                                 (s_prg : SourceLang.prg)
+                                 (sl_prg : StackLang.stk_prg)
+                                 (s_v : SourceLang.val)
+                                 (sl_vs : list StackLang.ins_val),
+    (SourceRel.eval_R f s_prg s_v -> compile_result_R s_v [] sl_vs)
+    <-> (compile_R s_prg sl_prg -> StackLangRel.eval_R f sl_prg sl_vs).
+Proof.
+  split.
+  - intros H.
+    apply eval_compile_correct.
+  - intros H.
+    apply compile_eval_correct.
+Qed.
+
+End STSProof.
