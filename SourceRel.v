@@ -7,7 +7,9 @@ Module SourceRel.
 Inductive do_prim1_R : prim1 -> val -> val -> Prop :=
   | DP1R_add1 : forall i, do_prim1_R P_add1 (V_Int i) (V_Int (i + 1))
   | DP1R_sub1 : forall i, do_prim1_R P_sub1 (V_Int i) (V_Int (i - 1))
-  | DP1R_not : forall b, do_prim1_R P_not (V_Bool b) (V_Bool (negb b)).
+  | DP1R_not_false : do_prim1_R P_not (V_Bool false) (V_Bool true)
+  | DP1R_not_true : do_prim1_R P_not (V_Bool true) (V_Bool false)
+  | DP1R_not_int : forall i, do_prim1_R P_not (V_Int i) (V_Bool false).
 
 Inductive do_prim2_R : prim2 -> val -> val -> val -> Prop :=
   | DP2R_add : forall i1 i2, do_prim2_R P_add (V_Int i1) (V_Int i2) (V_Int (i1 + i2))
@@ -37,7 +39,7 @@ Inductive eval_tm_R : nat -> partial_map defn -> partial_map val -> tm -> val ->
       Ok (Defn fn xs t) = lookup funs fn ->
       eval_tm_R f' funs env t v ->
       eval_tm_R f funs env (App fn []) v
-(* Need a case for App with non-zero list of arguments. *)
+(* TODO: Need a case for App with non-zero list of arguments. *)
   | E_IfTrue : forall f funs env t1 t2 t3 v,
       eval_tm_R f funs env t1 (V_Bool true) ->
       eval_tm_R f funs env t2 v ->
