@@ -35,6 +35,66 @@ Inductive tm : Type :=
   | If (t1 : tm) (t2 : tm) (t3 : tm)
   | Let (x : string) (t1 : tm) (t2 : tm).
 
+Inductive arg_list_tm : tm -> Prop :=
+  | ALNil : arg_list_tm ArgNil
+  | ALCons : forall t t_al, arg_list_tm (ArgCons t t_al).
+
+Fixpoint arg_list_length (t_al : tm) :=
+  match t_al with
+  | ArgCons _ t_al' => S (arg_list_length t_al')
+  | _ => O
+  end.
+
+Inductive expr_tm : tm -> Prop :=
+  | EConst : forall v, expr_tm (Const v)
+  | EVar : forall x, expr_tm (Var x)
+  | EPrim1 : forall op t, expr_tm (Prim1 op t)
+  | EPrim2 : forall op t1 t2, expr_tm (Prim2 op t1 t2)
+  | EApp : forall f t_al, expr_tm (App f t_al)
+  | EIf : forall t1 t2 t3, expr_tm (If t1 t2 t3)
+  | ELet : forall x t1 t2, expr_tm (Let x t1 t2).
+
+Inductive well_formed_tm : tm -> Prop :=
+  | wfConst : forall v,
+      well_formed_tm (Const v)
+  | wfVar : forall x,
+      well_formed_tm (Var x)
+  | wfPrim1 : forall op t, 
+      well_formed_tm t ->
+      expr_tm t ->
+      well_formed_tm (Prim1 op t)
+  | wfPrim2 : forall op t1 t2,
+      well_formed_tm t1 ->
+      well_formed_tm t2 ->
+      expr_tm t1 ->
+      expr_tm t2 ->
+      well_formed_tm (Prim2 op t1 t2)
+  | wfApp : forall f t_al,
+      well_formed_tm t_al ->
+      arg_list_tm t_al ->
+      well_formed_tm (App f t_al)
+  | wfArgCons : forall t t_al,
+      well_formed_tm t ->
+      well_formed_tm t_al ->
+      expr_tm t ->
+      arg_list_tm t_al ->
+      well_formed_tm (ArgCons t t_al)
+  | wfArgNil : well_formed_tm ArgNil
+  | wfIf : forall t1 t2 t3,
+      well_formed_tm t1 ->
+      well_formed_tm t2 ->
+      well_formed_tm t3 ->
+      expr_tm t1 ->
+      expr_tm t2 ->
+      expr_tm t3 ->
+      well_formed_tm (If t1 t2 t3)
+  | wfLet : forall x t1 t2,
+      well_formed_tm t1 ->
+      well_formed_tm t2 ->
+      expr_tm t1 ->
+      expr_tm t2 ->
+      well_formed_tm (Let x t1 t2).
+
 Inductive defn : Type :=
   Defn (f : string) (xs : list string) (body : tm).
 

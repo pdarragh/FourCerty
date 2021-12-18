@@ -54,15 +54,10 @@ Fixpoint compile_tm (gamma : list (option string)) (e : SourceLang.tm) k
   | SourceLang.Prim2 op e1 e2 =>
       compile_tm gamma e1 (compile_tm (None :: gamma) e2 (StackLang.Ins (compile_prim2 op) k))
   | SourceLang.App l e_args =>
-    let fix compile_arg_list n gamma e_al :=
-      match e_al with
-      | SourceLang.ArgNil => StackLang.Ins (StackLang.Call l n) k
-      | SourceLang.ArgCons e_arg e_al' => compile_tm gamma e_arg (compile_arg_list (S n) (None :: gamma) e_al')
-      | _ => StackLang.Ins StackLang.StkErr k
-      end in
-    compile_arg_list 0 gamma e_args
-  | SourceLang.ArgCons e_arg e_args => StackLang.Ins StackLang.StkErr k
-  | SourceLang.ArgNil => StackLang.Ins StackLang.StkErr k
+      compile_tm gamma e_args (StackLang.Ins (StackLang.Call l (SourceLang.arg_list_length e_args)) k)
+  | SourceLang.ArgCons e_arg e_al =>
+      compile_tm gamma e_arg (compile_tm (None :: gamma) e_al k)
+  | SourceLang.ArgNil => k
   | SourceLang.If e1 e2 e3 =>
       compile_tm gamma e1 (StackLang.If (compile_tm gamma e2 StackLang.End)
                                         (compile_tm gamma e3 StackLang.End) k)
@@ -272,6 +267,10 @@ Proof.
     destruct (StackLang.eval' funs f (compile_tm _ e2 _) v); [reflexivity|].
     simpl. rewrite seq_eval_ins_end. reflexivity.
   - (* App *)
+    admit.
+  - (* ArgCons *)
+    admit.
+  - (* ArgNil *)
     admit.
   - (* If *)
     intros inss gamma stk.
@@ -509,7 +508,12 @@ Proof.
                      (consistent_val env gamma stk (compile_val v) HC)).
     destruct (SourceLang.eval' _ _ e2 _); [reflexivity|].
     simpl. apply compile_prim2_correct.
-  - (* App *)   admit.
+  - (* App *)
+    admit.
+  - (* ArgCons *)
+    induction f; reflexivity.
+  - (* ArgNil *)
+    induction f; reflexivity.
   - (* If *)
     intros env gamma stk HC.
     simpl compile_tm.
