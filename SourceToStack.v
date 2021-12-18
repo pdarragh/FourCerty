@@ -53,13 +53,16 @@ Fixpoint compile_tm (gamma : list (option string)) (e : SourceLang.tm) k
       compile_tm gamma e' (StackLang.Ins (StackLang.Uop (compile_prim1 op)) k)
   | SourceLang.Prim2 op e1 e2 =>
       compile_tm gamma e1 (compile_tm (None :: gamma) e2 (StackLang.Ins (compile_prim2 op) k))
-  | SourceLang.App l es =>
-    let fix compile_tms gamma es :=
-      match es with
-      | [] => StackLang.Ins (StackLang.Call l (List.length es)) k
-      | e :: es' => compile_tm gamma e (compile_tms (None :: gamma) es')
+  | SourceLang.App l e_args =>
+    let fix compile_arg_list n gamma e_al :=
+      match e_al with
+      | SourceLang.ArgNil => StackLang.Ins (StackLang.Call l n) k
+      | SourceLang.ArgCons e_arg e_al' => compile_tm gamma e_arg (compile_arg_list (S n) (None :: gamma) e_al')
+      | _ => StackLang.Ins StackLang.StkErr k
       end in
-    compile_tms gamma es
+    compile_arg_list 0 gamma e_args
+  | SourceLang.ArgCons e_arg e_args => StackLang.Ins StackLang.StkErr k
+  | SourceLang.ArgNil => StackLang.Ins StackLang.StkErr k
   | SourceLang.If e1 e2 e3 =>
       compile_tm gamma e1 (StackLang.If (compile_tm gamma e2 StackLang.End)
                                         (compile_tm gamma e3 StackLang.End) k)

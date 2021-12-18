@@ -129,7 +129,7 @@ Definition eval' (funs : fundefns) :=
           v1 <- eval_tm t1 env;;
           v2 <- eval_tm t2 env;;
           do_prim2 op v1 v2
-      | App fn ts =>
+      | App fn t_args =>
           let fix eval_arg_list (t_al : tm) :=
             match t_al with
             | ArgNil => Ok []
@@ -137,17 +137,17 @@ Definition eval' (funs : fundefns) :=
                 v <- eval_tm t_arg env;;
                 vl <- eval_arg_list t_al';;
                 Ok (v :: vl)
-            | _ => Err (ErrorMsg "Ill-Formed")
+            | _ => Err Error
             end in
-          vs <- eval_arg_list ts;;
+          vs <- eval_arg_list t_args;;
           '(Defn _ xs t) <- lookup funs fn;;
           env' <- build_env xs vs;;
           match f with
           | O => Err OOF
           | S f' => eval_fuel f' t env'
           end
-      | ArgCons _ _ => Err (ErrorMsg "Ill-Formed")
-      | ArgNil => Err (ErrorMsg "Ill-Formed")
+      | ArgCons _ _ => Err Error
+      | ArgNil => Err Error
       | If t1 t2 t3 =>
           v1 <- eval_tm t1 env;;
           match v1 with
