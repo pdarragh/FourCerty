@@ -29,7 +29,9 @@ Inductive tm : Type :=
   | Var (x : string)
   | Prim1 (op : prim1) (t : tm)
   | Prim2 (op : prim2) (t1 : tm) (t2 : tm)
-  | App (f : string) (ts : list tm)
+  | App (f : string) (ts : tm)
+  | ArgCons (t : tm) (tRst : tm)
+  | ArgNil
   | If (t1 : tm) (t2 : tm) (t3 : tm)
   | Let (x : string) (t1 : tm) (t2 : tm).
 
@@ -128,13 +130,24 @@ Definition eval' (funs : fundefns) :=
           v2 <- eval_tm t2 env;;
           do_prim2 op v1 v2
       | App fn ts =>
-          vs <- sequenceM (List.map (fun t => eval_tm t env) ts);;
+          let fix eval_arg_list (t_al : tm) :=
+            match t_al with
+            | ArgNil => Ok []
+            | ArgCons t_arg t_al' =>
+                v <- eval_tm t_arg env;;
+                vl <- eval_arg_list t_al';;
+                Ok (v :: vl)
+            | _ => Err (ErrorMsg "Ill-Formed")
+            end in
+          vs <- eval_arg_list ts;;
           '(Defn _ xs t) <- lookup funs fn;;
           env' <- build_env xs vs;;
           match f with
           | O => Err OOF
           | S f' => eval_fuel f' t env'
           end
+      | ArgCons _ _ => Err (ErrorMsg "Ill-Formed")
+      | ArgNil => Err (ErrorMsg "Ill-Formed")
       | If t1 t2 t3 =>
           v1 <- eval_tm t1 env;;
           match v1 with
