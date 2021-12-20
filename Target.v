@@ -49,7 +49,8 @@ Inductive tgt_ins : Type :=
   | Pop (a1 : register)
   | Lea (dst : register + offset) (x : label).
 
-Definition registers := nevector nat 16.
+Definition register_vector := nevector nat 16.
+Definition empty_registers : register_vector := replicate1 0 15.
 
 Definition reg_id (reg : register) : nat :=
   match reg with
@@ -72,21 +73,47 @@ Definition reg_id (reg : register) : nat :=
   | eax => 0
   end.
 
-Definition register_lookup (regs : registers) (reg : register) : nat :=
-  regs[@ (reg_id reg)].
-
 Inductive tgt_machine : Type :=
-  | Machine (funs : partial_map nat)
-            (inss : list tgt_ins)
-            (regs : registers)
-            (stack : list nat).
+  | Machine
+      (* Functions are names correlated to addresses on the stack. *)
+      (funs : partial_map nat)
+      (inss : list tgt_ins)
+      (regs : register_vector)
+      (stack : list nat).
 
-Definition machine_register_lookup (mchn : tgt_machine) (reg : register) : nat :=
+Definition register_lookup (mchn : tgt_machine) (reg : register) : nat :=
   match mchn with
-  | Machine _ _ regs _ => register_lookup regs reg
+  | Machine _ _ regs _ => regs[@ (reg_id reg)]
   end.
 
-Definition push (mchn : tgt_machine) (val : nat) : tgt_machine :=
+Definition offset_to_addr (mchn : tgt_machine) (off : offset) : nat :=
+  match off with
+  | Offset reg o => (register_lookup mchn reg) + (Z.to_nat o)
+  end.
+
+Definition offset_lookup (mchn : tgt_machine) (off : offset) : result nat :=
+  match off with
+  | Offset reg o =>
+      match mchn with
+      | Machine _ _ _ stack =>
+          let addr := register_lookup mchn reg in
+          match List.nth_error stack (addr + (Z.to_nat o)) with
+          | None => Err (ErrorMsg "Out-of-bounds memory access.")
+          | Some v => Ok v
+          end
+      end
+  end.
+
+Definition read_memory := offset_lookup.
+
+Definition write_memory (mchn : tgt_machine) (off : offset) (val : nat) : result tgt_machine :=
+  match mchn with
+  | Machine funs inss regs stack =>
+      stack' <- update_nth stack (offset_to_addr mchn off) val;;
+      ret (Machine funs inss regs stack')
+  end.
+
+Definition push (val : nat) (mchn : tgt_machine) : tgt_machine :=
   match mchn with
   | Machine funs inss regs stack => Machine funs inss regs (val :: stack)
   end.
@@ -100,10 +127,13 @@ Definition pop (mchn : tgt_machine) : result (nat * tgt_machine) :=
 Declare Scope tgt_scope.
 Delimit Scope tgt_scope with tgt.
 
-Notation "r [ z ]" := (Offset r z) (at level 80) : tgt_scope.
-Notation "m <| r |>" := (machine_register_lookup m r) (at level 80) : tgt_scope.
-Notation "m >> v ;; c" := (bind (pop m) (fun '(m, v) => c)) (at level 80) : tgt_scope.
-Notation "m << v ;; c" := (let m := (push m v) in c) (at level 80) : tgt_scope.
+Notation "r {{ z }}" := (Offset r z) (at level 80) : tgt_scope.
+Notation "m <| r |>" := (register_lookup m r) (at level 10) : tgt_scope.
+Notation "m <|| o ||>" := (offset_lookup m o) (at level 10) : tgt_scope.
+Infix ">>" := push (at level 80) : tgt_scope.
+
+(* I cannot for the life of me get this notation to work correctly. *)
+(* Notation "v <<- m ; c" := (bind (pop m) (fun '(v, x) => c)) (at level 61, m at next level, m binder, right associativity) : tgt_scope. *)
 
 Open Scope tgt_scope.
 
