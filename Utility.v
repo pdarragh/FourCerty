@@ -30,6 +30,16 @@ Fixpoint remove {A : Type} (n : nat) (xs : list A) :=
       end
   end.
 
+Fixpoint update_nth {A : Type} (xs : list A) (n : nat) (a : A) : result (list A) :=
+  match xs with
+  | [] => Err Error
+  | x :: xs' => match n with
+              | 0 => Ok (a :: xs')
+              | S n' => rst <- update_nth xs' n' a;;
+                       ret (x :: rst)
+              end
+  end.
+
 Definition rand_select_remove {A : Type} (def : A) (xs : list A) : G (A * list A) :=
   match xs with
   | [] => ret (def, xs)
