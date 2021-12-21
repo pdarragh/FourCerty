@@ -53,11 +53,8 @@ Fixpoint compile_tm (gamma : list (option string)) (e : SourceLang.tm) k
       compile_tm gamma e' (StackLang.Ins (StackLang.Uop (compile_prim1 op)) k)
   | SourceLang.Prim2 op e1 e2 =>
       compile_tm gamma e1 (compile_tm (None :: gamma) e2 (StackLang.Ins (compile_prim2 op) k))
-  | SourceLang.App l e_args =>
-      compile_tm gamma e_args (StackLang.Ins (StackLang.Call l (SourceLang.arg_list_length e_args)) k)
-  | SourceLang.ArgCons e_arg e_al =>
-      compile_tm gamma e_arg (compile_tm (None :: gamma) e_al k)
-  | SourceLang.ArgNil => k
+  | SourceLang.App l e =>
+      compile_tm gamma e (StackLang.Ins (StackLang.Call l 1) k)
   | SourceLang.If e1 e2 e3 =>
       compile_tm gamma e1 (StackLang.If (compile_tm gamma e2 StackLang.End)
                                         (compile_tm gamma e3 StackLang.End) k)
@@ -68,8 +65,9 @@ Fixpoint compile_tm (gamma : list (option string)) (e : SourceLang.tm) k
 
 Definition compile_defn (defn: SourceLang.defn) : StackLang.stk_fun :=
   match defn with
-  | SourceLang.Defn l xs e =>
-      StackLang.Fun l (List.length xs) (compile_tm (map Some (List.rev xs)) e StackLang.End)
+  | SourceLang.Defn l x e =>
+      StackLang.Fun l 1 (compile_tm [Some x] e (StackLang.Ins StackLang.Swap
+                                                 (StackLang.Ins StackLang.Pop StackLang.End)))
   end.
 
 Definition compile (src : SourceLang.prg) : StackLang.stk_prg :=
@@ -78,10 +76,15 @@ Definition compile (src : SourceLang.prg) : StackLang.stk_prg :=
       StackLang.Prg (map compile_defn funs) (compile_tm [] e StackLang.End)
   end.
 
-Definition compile_result (res : result SourceLang.val) (rst : list StackLang.ins_val)
+Definition compile_result (res : result SourceLang.val)
     : result (list StackLang.ins_val) :=
   v <- res;;
-  ret ([compile_val v] ++ rst).
+  ret [compile_val v].
+
+Definition append_result (res : result (list StackLang.ins_val)) (rst : list StackLang.ins_val)
+    : result (list StackLang.ins_val) :=
+  vs <- res;;
+  ret (vs ++ rst).
 
 Fixpoint stk_append inss1 inss2 :=
   match inss1 with
@@ -91,7 +94,7 @@ Fixpoint stk_append inss1 inss2 :=
   end.
 
 Lemma seq_eval_ins_end :
-    forall (funs : partial_map StackLang.stk_fun)
+    forall (funs : partial_map (nat * StackLang.stk_tm))
            (f : nat)
            (ins : StackLang.stk_ins)
            (inss : StackLang.stk_tm)
@@ -111,7 +114,7 @@ Proof.
     + simpl. destruct (Datatypes.length (firstn n stk) <? n); [reflexivity|].
       destruct (Utility.lookup funs l); [reflexivity|].
       destruct v. destruct (n0 =? n); [|reflexivity].
-      destruct (StackLang.eval' funs f ins (firstn n stk)); reflexivity.
+      destruct (StackLang.eval' funs f s (firstn n stk)); reflexivity.
   - (* Pop *)
     induction f; destruct stk; reflexivity.
   - (* Swap *)
@@ -133,7 +136,7 @@ Proof.
 Qed.
 
 Lemma eval_if_false :
-    forall (funs : partial_map StackLang.stk_fun)
+    forall (funs : partial_map (nat * StackLang.stk_tm))
            (f : nat)
            (inss1 : StackLang.stk_tm)
            (inss2 : StackLang.stk_tm)
@@ -149,7 +152,7 @@ Proof.
 Qed.
 
 Lemma eval_if_true :
-    forall (funs : partial_map StackLang.stk_fun)
+    forall (funs : partial_map (nat * StackLang.stk_tm))
            (f : nat)
            (inss1 : StackLang.stk_tm)
            (inss2 : StackLang.stk_tm)
@@ -171,7 +174,7 @@ Proof.
 Qed.
 
 Lemma seq_eval_if_end :
-    forall (funs : partial_map StackLang.stk_fun)
+    forall (funs : partial_map (nat * StackLang.stk_tm))
            (f : nat)
            (inss1 : StackLang.stk_tm)
            (inss2 : StackLang.stk_tm)
@@ -200,7 +203,7 @@ Proof.
 Qed.
 
 Lemma seq_eval_append :
-    forall (funs : partial_map StackLang.stk_fun)
+    forall (funs : partial_map (nat * StackLang.stk_tm))
            (f : nat)
            (tm1 : StackLang.stk_tm)
            (tm2 : StackLang.stk_tm)
@@ -230,7 +233,7 @@ Proof.
 Qed.
 
 Lemma seq_eval_compile :
-    forall (funs : partial_map StackLang.stk_fun)
+    forall (funs : partial_map (nat * StackLang.stk_tm))
            (f : nat)
            (e : SourceLang.tm)
            (inss : StackLang.stk_tm)
@@ -243,7 +246,8 @@ Lemma seq_eval_compile :
 Proof.
   intros funs f e.
   induction e.
-  - (* Const *) induction f; reflexivity.
+  - (* Const *)
+    induction f; reflexivity.
   - (* Var *)
     intros inss gamma stk.
     simpl compile_tm.
@@ -267,11 +271,12 @@ Proof.
     destruct (StackLang.eval' funs f (compile_tm _ e2 _) v); [reflexivity|].
     simpl. rewrite seq_eval_ins_end. reflexivity.
   - (* App *)
-    admit.
-  - (* ArgCons *)
-    admit.
-  - (* ArgNil *)
-    admit.
+    intros inss gamma stk.
+    simpl compile_tm.
+    rewrite IHe.
+    rewrite IHe with (inss:=(StackLang.Ins _ _)).
+    destruct (StackLang.eval' funs f (compile_tm _ e _)); [reflexivity|].
+    simpl. rewrite seq_eval_ins_end. reflexivity.
   - (* If *)
     intros inss gamma stk.
     simpl compile_tm.
@@ -296,7 +301,7 @@ Proof.
                                (StackLang.Ins StackLang.Pop StackLang.End))
                              inss)). { reflexivity. }
     rewrite H. rewrite seq_eval_append. reflexivity.
-Admitted.
+Qed.
 
 Lemma eval_prim1 : forall funs f op e env,
     SourceLang.eval' funs f (SourceLang.Prim1 op e) env
@@ -316,6 +321,20 @@ Lemma eval_prim2 : forall funs f op e1 e2 env,
     SourceLang.do_prim2 op v1 v2.
 Proof.
   intros funs f op e env.
+  induction f; reflexivity.
+Qed.
+
+Lemma eval_app : forall funs f fn e env,
+    SourceLang.eval' funs f (SourceLang.App fn e) env
+    =
+    v <- SourceLang.eval' funs f e env;;
+    '(x, t) <- lookup funs fn;;
+    match f with
+    | O => Err OOF
+    | S f' => SourceLang.eval' funs f' t (update empty x v)
+    end.
+Proof.
+  intros funs f fn e env.
   induction f; reflexivity.
 Qed.
 
@@ -350,12 +369,12 @@ Proof.
 Qed.
 
 Lemma compile_prim1_correct : forall op v stk,
-    compile_result (SourceLang.do_prim1 op v) stk
+    append_result (compile_result (SourceLang.do_prim1 op v)) stk
     =
     v' <- StackLang.do_uop (compile_prim1 op) (compile_val v);;
     Ok (v' :: stk).
 Proof.
-  intros op v stk.
+  intros op v.
   destruct op.
   - (* Add1 *) destruct v; reflexivity.
   - (* Sub1 *) destruct v; reflexivity.
@@ -366,12 +385,12 @@ Proof.
 Qed.
 
 Lemma compile_prim2_correct : forall funs f op v1 v2 stk,
-    compile_result (SourceLang.do_prim2 op v1 v2) stk
+    append_result (compile_result (SourceLang.do_prim2 op v1 v2)) stk
     =
     StackLang.eval' funs f (StackLang.Ins (compile_prim2 op) StackLang.End)
       (compile_val v2 :: compile_val v1 :: stk).
 Proof.
-  intros funs f op v1 v2 stk.
+  intros funs f op v1 v2.
   destruct op; destruct v1; destruct v2; induction f; reflexivity.
 Qed.
 
@@ -415,7 +434,8 @@ Proof.
       split.
       * reflexivity.
       * assumption.
-  - intros x v0 H. simpl.
+  - (* push unnamed value *)
+    intros x v0 H. simpl.
     apply IHHC in H as [n [H1 H2]].
     rewrite H1.
     exists (S n).
@@ -455,24 +475,63 @@ Proof.
     reflexivity.
 Qed.
 
+Inductive consistent_funs :
+    partial_map (string * SourceLang.tm) -> partial_map (nat * StackLang.stk_tm) -> Prop :=
+  | consistent_funs_empty : consistent_funs empty empty
+  | consistent_funs_update l x t s_funs sl_funs (c : consistent_funs s_funs sl_funs) :
+      consistent_funs (l |-> (x, t); s_funs)
+                      (l |-> (1, compile_tm [Some x] t
+                                   (StackLang.Ins StackLang.Swap
+                                   (StackLang.Ins StackLang.Pop StackLang.End)));
+                             sl_funs).
+
+Definition consistent_funs_consistent
+    (s_funs : partial_map (string * SourceLang.tm))
+    (sl_funs : partial_map (nat * StackLang.stk_tm)) :=
+  consistent_funs s_funs sl_funs ->
+  forall (x : string),
+    (lookup s_funs x = Err Error /\ lookup sl_funs x = Err Error)
+    \/
+    (exists (y : string) (e : SourceLang.tm),
+      lookup s_funs x = Ok (y, e)
+      /\
+      lookup sl_funs x = Ok (1, (compile_tm [Some y] e
+                                  (StackLang.Ins StackLang.Swap
+                                    (StackLang.Ins StackLang.Pop StackLang.End))))
+      /\
+      (forall (s_funs : partial_map (string * SourceLang.tm))
+              (sl_funs : partial_map (nat * StackLang.stk_tm))
+              (f : nat) (v : SourceLang.val),
+        consistent_funs s_funs sl_funs
+        ->
+        compile_result (SourceLang.eval' s_funs f e (y |-> v))
+        =
+        StackLang.eval' sl_funs f (compile_tm [Some y] e
+                                    (StackLang.Ins StackLang.Swap
+                                      (StackLang.Ins StackLang.Pop StackLang.End)))
+                        [compile_val v])).
+
 Lemma compile_tm_correct :
-    forall (s_funs : partial_map SourceLang.defn)
-           (sl_funs : partial_map StackLang.stk_fun)
+    forall (s_funs : partial_map (string * SourceLang.tm))
+           (sl_funs : partial_map (nat * StackLang.stk_tm))
            (f : nat)
            (e : SourceLang.tm)
            (env : SourceLang.environment)
            (gamma : list (option string))
            (stk : list StackLang.ins_val),
+  consistent_funs s_funs sl_funs ->
+  consistent_funs_consistent s_funs sl_funs ->
   consistent_envs env gamma stk ->
-    compile_result (SourceLang.eval' s_funs f e env) stk
+    append_result (compile_result (SourceLang.eval' s_funs f e env)) stk
     =
     StackLang.eval' sl_funs f (compile_tm gamma e StackLang.End) stk.
 Proof.
   intros s_funs sl_funs f e.
   induction e.
-  - (* Const *) induction f; reflexivity.
+  - (* Const *)
+    induction f; reflexivity.
   - (* Var *)
-    intros env gamma stk HC.
+    intros env gamma stk HF HF' HC.
     simpl compile_tm.
     rewrite eval_var.
     destruct (lookup env x) eqn:E.
@@ -488,81 +547,169 @@ Proof.
       rewrite H1.
       induction f; simpl; rewrite H2; reflexivity.
   - (* Prim1 *)
-    intros env gamma stk HC.
+    intros env gamma stk HF HF' HC.
     simpl compile_tm.
     rewrite seq_eval_compile.
-    rewrite <- (IHe env gamma stk HC).
+    rewrite <- (IHe env gamma stk HF HF' HC).
     rewrite eval_prim1.
     destruct (SourceLang.eval' _ _ e _); [reflexivity|].
     simpl. rewrite compile_prim1_correct. induction f; reflexivity.
   - (* Prim2 *)
-    intros env gamma stk HC.
+    intros env gamma stk HF HF' HC.
     simpl compile_tm.
     rewrite seq_eval_compile.
-    rewrite <- (IHe1 env gamma stk HC).
+    rewrite <- (IHe1 env gamma stk HF HF' HC).
     rewrite eval_prim2.
     destruct (SourceLang.eval' _ _ e1 _); [reflexivity|].
     simpl.
     rewrite seq_eval_compile.
-    rewrite <- (IHe2 env (None :: gamma) (compile_val v :: stk)
+    rewrite <- (IHe2 env (None :: gamma) (compile_val v :: stk) HF HF'
                      (consistent_val env gamma stk (compile_val v) HC)).
     destruct (SourceLang.eval' _ _ e2 _); [reflexivity|].
-    simpl. apply compile_prim2_correct.
+    simpl. rewrite compile_prim2_correct with (funs:=sl_funs) (f:=f).
+    induction f; reflexivity.
   - (* App *)
-    admit.
-  - (* ArgCons *)
-    induction f; reflexivity.
-  - (* ArgNil *)
-    induction f; reflexivity.
-  - (* If *)
-    intros env gamma stk HC.
+    intros env gamma stk HF HF' HC.
     simpl compile_tm.
     rewrite seq_eval_compile.
-    rewrite <- (IHe1 env gamma stk HC).
+    rewrite <- (IHe env gamma stk HF HF' HC).
+    rewrite eval_app.
+    destruct (SourceLang.eval' s_funs f e env); [reflexivity|].
+    simpl.
+    destruct (HF' HF f0).
+    destruct (lookup s_funs f0) eqn:E.
+    + destruct H. injection H as H. rewrite H. destruct f; simpl; rewrite H0; reflexivity.
+    + destruct H. discriminate.
+    + destruct H as [x [e' [H1 [H2 H3]]]].
+      rewrite H1.
+      destruct f.
+      * simpl. rewrite H2. reflexivity.
+      * simpl. rewrite H2. simpl.
+        rewrite H3 with (sl_funs:=sl_funs); [|assumption].
+        induction f; reflexivity.
+  - (* If *)
+    intros env gamma stk HF HF' HC.
+    simpl compile_tm.
+    rewrite seq_eval_compile.
+    rewrite <- (IHe1 env gamma stk HF HF' HC).
     rewrite eval_if.
     destruct (SourceLang.eval' _ _ e1 _); [reflexivity|].
     simpl. destruct v.
     + (* v is bool *)
       destruct b.
       * (* true *)
-        rewrite (IHe2 env gamma stk HC).
+        rewrite (IHe2 env gamma stk HF HF' HC).
         simpl compile_val.
         rewrite eval_if_true; [|discriminate].
         destruct (StackLang.eval' _ _ (compile_tm _ e2 _) _); [reflexivity|].
         induction f; reflexivity.
       * (* false *)
-        rewrite (IHe3 env gamma stk HC).
+        rewrite (IHe3 env gamma stk HF HF' HC).
         simpl compile_val.
         rewrite eval_if_false.
         destruct (StackLang.eval' _ _ (compile_tm _ e3 _) _); [reflexivity|].
         induction f; reflexivity.
-    + rewrite (IHe2 env gamma stk HC).
+    + rewrite (IHe2 env gamma stk HF HF' HC).
       simpl compile_val.
       rewrite eval_if_true; [|discriminate].
       destruct (StackLang.eval' _ _ (compile_tm _ e2 _) _); [reflexivity|].
       induction f; reflexivity.
   - (* Let *)
-    intros env gamma stk HC.
+    intros env gamma stk HF HF' HC.
     simpl compile_tm.
     rewrite seq_eval_compile.
-    rewrite <- (IHe1 env gamma stk HC).
+    rewrite <- (IHe1 env gamma stk HF HF' HC).
     rewrite eval_let.
     destruct (SourceLang.eval' _ _ e1 _); [reflexivity|].
     simpl. rewrite seq_eval_compile.
-    simpl. rewrite <- (IHe2 (x |-> v; env) (Some x :: gamma) (compile_val v :: stk)
+    simpl. rewrite <- (IHe2 (x |-> v; env) (Some x :: gamma) (compile_val v :: stk) HF HF'
                             (consistent_var env gamma stk x v HC)).
     destruct (SourceLang.eval' _ _ e2 _); [reflexivity|].
     induction f; reflexivity.
+Qed.
+
+Theorem append_result_empty : forall (res : result (list StackLang.ins_val)),
+  res = append_result res [].
+Proof.
+  intros res.
+  destruct res.
+  - reflexivity.
+  - unfold append_result. simpl.
+    rewrite app_nil_r.
+    reflexivity.
+Qed.
+
+Lemma compile_funs_consistent :
+    forall (defns : list SourceLang.defn),
+  consistent_funs (SourceLang.extract_funs defns)
+                  (StackLang.extract_funs (map compile_defn defns)).
+Proof.
+  intros defns.
+  induction defns.
+  - simpl. apply consistent_funs_empty.
+  - simpl. destruct a.
+    apply consistent_funs_update.
+    apply IHdefns.
+Qed.
+
+Lemma consistent_funs_indeed_consistent :
+    forall (s_funs : partial_map (string * SourceLang.tm))
+           (sl_funs : partial_map (nat * StackLang.stk_tm)),
+  consistent_funs s_funs sl_funs ->
+  consistent_funs_consistent s_funs sl_funs.
+Proof.
+  intros s_funs sl_funs H.
+  induction H.
+  - unfold consistent_funs_consistent.
+    intros H x.
+    left. split; reflexivity.
+  - unfold consistent_funs_consistent.
+    intros H' y.
+    destruct (l =? y)%string eqn:E.
+    + apply eqb_eq in E.
+      right.
+      exists x. exists t.
+      rewrite E.
+      split. { unfold lookup. rewrite update_eq. reflexivity. }
+      split. { unfold lookup. rewrite update_eq. reflexivity. }
+      intros.
+      rewrite seq_eval_compile.
+      rewrite <- compile_tm_correct with (s_funs:=s_funs0) (env:=(x |-> v)).
+      * destruct (SourceLang.eval' _ _ _ _); [reflexivity|].
+        destruct f; reflexivity.
+      * assumption.
+      * admit.
+      * apply consistent_var.
+        apply consistent_empty.
+    + apply eqb_neq in E.
+      apply IHconsistent_funs in H as H''.
+      destruct (H'' y).
+      * left. unfold lookup in *. simpl in *.
+        rewrite update_neq; [|assumption].
+        rewrite update_neq; [|assumption].
+        assumption.
+      * right. destruct H0 as [y0 [e [H1 [H2 H3]]]].
+        exists y0. exists e.
+        unfold lookup in *. simpl in *.
+        rewrite update_neq; [|assumption].
+        rewrite update_neq; [|assumption].
+        split; [assumption|].
+        split; [assumption|].
+        assumption.
 Admitted.
 
 Theorem compiler_correctness : forall (f : nat) (prg : SourceLang.prg),
-  compile_result (SourceLang.eval f prg) [] = StackLang.eval f (compile prg).
+  compile_result (SourceLang.eval f prg) = StackLang.eval f (compile prg).
 Proof.
   intros f prg.
+  rewrite (append_result_empty (compile_result _)).
   induction prg.
   unfold compile, SourceLang.eval, StackLang.eval.
   apply compile_tm_correct.
-  apply consistent_empty.
+  - apply compile_funs_consistent.
+  - apply consistent_funs_indeed_consistent.
+    apply compile_funs_consistent.
+  - apply consistent_empty.
 Qed.
 
 End SourceToStack.

@@ -105,10 +105,10 @@ Inductive stk_prg : Type :=
 Fixpoint extract_funs (funs : list stk_fun) :=
   match funs with
   | nil => empty
-  | Fun l n inss :: rst => update (extract_funs rst) l (Fun l n inss)
+  | Fun l n inss :: rst => update (extract_funs rst) l (n, inss)
   end.
 
-Definition eval' (funs : partial_map stk_fun) :=
+Definition eval' (funs : partial_map (nat * stk_tm)) :=
   fix eval_fuel (f : nat) :=
     fix eval_tm (inss : stk_tm) (val_stack : list ins_val) : result (list ins_val) :=
       match inss with
@@ -121,7 +121,7 @@ Definition eval' (funs : partial_map stk_fun) :=
               let rst := skipn n val_stack in
               if List.length args <? n
               then Err Error
-              else '(Fun _ m inss'') <- lookup funs l;;
+              else '(m, inss'') <- lookup funs l;;
                    if m =? n
                    then match f with
                         | O => Err OOF

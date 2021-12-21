@@ -29,76 +29,14 @@ Inductive tm : Type :=
   | Var (x : string)
   | Prim1 (op : prim1) (t : tm)
   | Prim2 (op : prim2) (t1 : tm) (t2 : tm)
-  | App (f : string) (ts : tm)
-  | ArgCons (t : tm) (tRst : tm)
-  | ArgNil
+  | App (f : string) (t : tm)
   | If (t1 : tm) (t2 : tm) (t3 : tm)
   | Let (x : string) (t1 : tm) (t2 : tm).
 
-Inductive arg_list_tm : tm -> Prop :=
-  | ALNil : arg_list_tm ArgNil
-  | ALCons : forall t t_al, arg_list_tm (ArgCons t t_al).
-
-Fixpoint arg_list_length (t_al : tm) :=
-  match t_al with
-  | ArgCons _ t_al' => S (arg_list_length t_al')
-  | _ => O
-  end.
-
-Inductive expr_tm : tm -> Prop :=
-  | EConst : forall v, expr_tm (Const v)
-  | EVar : forall x, expr_tm (Var x)
-  | EPrim1 : forall op t, expr_tm (Prim1 op t)
-  | EPrim2 : forall op t1 t2, expr_tm (Prim2 op t1 t2)
-  | EApp : forall f t_al, expr_tm (App f t_al)
-  | EIf : forall t1 t2 t3, expr_tm (If t1 t2 t3)
-  | ELet : forall x t1 t2, expr_tm (Let x t1 t2).
-
-Inductive well_formed_tm : tm -> Prop :=
-  | wfConst : forall v,
-      well_formed_tm (Const v)
-  | wfVar : forall x,
-      well_formed_tm (Var x)
-  | wfPrim1 : forall op t, 
-      well_formed_tm t ->
-      expr_tm t ->
-      well_formed_tm (Prim1 op t)
-  | wfPrim2 : forall op t1 t2,
-      well_formed_tm t1 ->
-      well_formed_tm t2 ->
-      expr_tm t1 ->
-      expr_tm t2 ->
-      well_formed_tm (Prim2 op t1 t2)
-  | wfApp : forall f t_al,
-      well_formed_tm t_al ->
-      arg_list_tm t_al ->
-      well_formed_tm (App f t_al)
-  | wfArgCons : forall t t_al,
-      well_formed_tm t ->
-      well_formed_tm t_al ->
-      expr_tm t ->
-      arg_list_tm t_al ->
-      well_formed_tm (ArgCons t t_al)
-  | wfArgNil : well_formed_tm ArgNil
-  | wfIf : forall t1 t2 t3,
-      well_formed_tm t1 ->
-      well_formed_tm t2 ->
-      well_formed_tm t3 ->
-      expr_tm t1 ->
-      expr_tm t2 ->
-      expr_tm t3 ->
-      well_formed_tm (If t1 t2 t3)
-  | wfLet : forall x t1 t2,
-      well_formed_tm t1 ->
-      well_formed_tm t2 ->
-      expr_tm t1 ->
-      expr_tm t2 ->
-      well_formed_tm (Let x t1 t2).
-
 Inductive defn : Type :=
-  Defn (f : string) (xs : list string) (body : tm).
+  Defn (f : string) (x : string) (body : tm).
 
-Notation fundefns := (partial_map defn).
+Notation fundefns := (partial_map (string * tm)).
 
 Inductive prg : Type :=
   Prg (funs : list defn) (e : tm).
@@ -173,7 +111,7 @@ Definition do_prim2 (op : prim2) (v1 : val) (v2 : val) : result val :=
 Fixpoint extract_funs (funs : list defn) : fundefns :=
   match funs with
   | nil => empty
-  | (Defn fn xs t) :: funs' => update (extract_funs funs') fn (Defn fn xs t)
+  | (Defn fn xs t) :: funs' => update (extract_funs funs') fn (xs ,t)
   end.
 
 Definition eval' (funs : fundefns) :=
@@ -189,25 +127,13 @@ Definition eval' (funs : fundefns) :=
           v1 <- eval_tm t1 env;;
           v2 <- eval_tm t2 env;;
           do_prim2 op v1 v2
-      | App fn t_args =>
-          let fix eval_arg_list (t_al : tm) :=
-            match t_al with
-            | ArgNil => Ok []
-            | ArgCons t_arg t_al' =>
-                v <- eval_tm t_arg env;;
-                vl <- eval_arg_list t_al';;
-                Ok (v :: vl)
-            | _ => Err Error
-            end in
-          vs <- eval_arg_list t_args;;
-          '(Defn _ xs t) <- lookup funs fn;;
-          env' <- build_env xs vs;;
+      | App fn t =>
+          v <- eval_tm t env;;
+          '(x, t) <- lookup funs fn;;
           match f with
           | O => Err OOF
-          | S f' => eval_fuel f' t env'
+          | S f' => eval_fuel f' t (update empty x v)
           end
-      | ArgCons _ _ => Err Error
-      | ArgNil => Err Error
       | If t1 t2 t3 =>
           v1 <- eval_tm t1 env;;
           match v1 with
