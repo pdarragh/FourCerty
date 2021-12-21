@@ -81,17 +81,112 @@ Definition compile_result (res : result SourceLang.val)
   v <- res;;
   ret [compile_val v].
 
-Definition append_result (res : result (list StackLang.ins_val)) (rst : list StackLang.ins_val)
-    : result (list StackLang.ins_val) :=
-  vs <- res;;
-  ret (vs ++ rst).
+(* Evaluation Lemmas *)
 
-Fixpoint stk_append inss1 inss2 :=
-  match inss1 with
-  | StackLang.End => inss2
-  | StackLang.Ins ins rst => StackLang.Ins ins (stk_append rst inss2)
-  | StackLang.If thn els rst => StackLang.If thn els (stk_append rst inss2)
-  end.
+Lemma eval_if_false :
+    forall (funs : partial_map (nat * StackLang.stk_tm))
+           (f : nat)
+           (inss1 : StackLang.stk_tm)
+           (inss2 : StackLang.stk_tm)
+           (inss3 : StackLang.stk_tm)
+           (stk : list StackLang.ins_val),
+  StackLang.eval' funs f (StackLang.If inss1 inss2 inss3) (StackLang.V_Bool false :: stk)
+  =
+  vs <- StackLang.eval' funs f inss2 stk;;
+  StackLang.eval' funs f inss3 vs.
+Proof.
+  intros funs f inss1 inss2 inss3 stk.
+  induction f; reflexivity.
+Qed.
+
+Lemma eval_if_true :
+    forall (funs : partial_map (nat * StackLang.stk_tm))
+           (f : nat)
+           (inss1 : StackLang.stk_tm)
+           (inss2 : StackLang.stk_tm)
+           (inss3 : StackLang.stk_tm)
+           (v : StackLang.ins_val)
+           (stk : list StackLang.ins_val),
+  v <> StackLang.V_Bool false ->
+    StackLang.eval' funs f (StackLang.If inss1 inss2 inss3) (v :: stk)
+    =
+    vs <- StackLang.eval' funs f inss1 stk;;
+    StackLang.eval' funs f inss3 vs.
+Proof.
+  intros funs f inss1 inss2 inss3 v stk H.
+  destruct v.
+  - induction f; reflexivity.
+  - destruct b.
+    + induction f; reflexivity.
+    + contradiction.
+Qed.
+
+Lemma eval_prim1 : forall funs f op e env,
+    SourceLang.eval' funs f (SourceLang.Prim1 op e) env
+    =
+    v <- SourceLang.eval' funs f e env;;
+    SourceLang.do_prim1 op v.
+Proof.
+  intros funs f op e env.
+  induction f; reflexivity.
+Qed.
+
+Lemma eval_prim2 : forall funs f op e1 e2 env,
+    SourceLang.eval' funs f (SourceLang.Prim2 op e1 e2) env
+    =
+    v1 <- SourceLang.eval' funs f e1 env;;
+    v2 <- SourceLang.eval' funs f e2 env;;
+    SourceLang.do_prim2 op v1 v2.
+Proof.
+  intros funs f op e env.
+  induction f; reflexivity.
+Qed.
+
+Lemma eval_app : forall funs f fn e env,
+    SourceLang.eval' funs f (SourceLang.App fn e) env
+    =
+    v <- SourceLang.eval' funs f e env;;
+    '(x, t) <- lookup funs fn;;
+    match f with
+    | O => Err OOF
+    | S f' => SourceLang.eval' funs f' t (update empty x v)
+    end.
+Proof.
+  intros funs f fn e env.
+  induction f; reflexivity.
+Qed.
+
+Lemma eval_if : forall funs f e1 e2 e3 env,
+    SourceLang.eval' funs f (SourceLang.If e1 e2 e3) env
+    =
+    v1 <- SourceLang.eval' funs f e1 env;;
+    match v1 with
+    | SourceLang.V_Bool false => SourceLang.eval' funs f e3 env
+    | _ => SourceLang.eval' funs f e2 env
+    end.
+Proof.
+  intros funs f e1 e2 e3 env.
+  induction f; reflexivity.
+Qed.
+
+Lemma eval_let : forall funs f x e1 e2 env,
+    SourceLang.eval' funs f (SourceLang.Let x e1 e2) env
+    =
+    v <- SourceLang.eval' funs f e1 env;;
+    SourceLang.eval' funs f e2 (update env x v).
+Proof.
+  intros funs f x e1 e2 env.
+  induction f; reflexivity.
+Qed.
+
+Lemma eval_var : forall funs f x env,
+    SourceLang.eval' funs f (SourceLang.Var x) env = lookup env x.
+Proof.
+  intros funs f x env.
+  induction f; reflexivity.
+Qed.
+
+(* Sequencing Lemmas *)
 
 Lemma seq_eval_ins_end :
     forall (funs : partial_map (nat * StackLang.stk_tm))
@@ -135,44 +230,6 @@ Proof.
     destruct i0; reflexivity.
 Qed.
 
-Lemma eval_if_false :
-    forall (funs : partial_map (nat * StackLang.stk_tm))
-           (f : nat)
-           (inss1 : StackLang.stk_tm)
-           (inss2 : StackLang.stk_tm)
-           (inss3 : StackLang.stk_tm)
-           (stk : list StackLang.ins_val),
-  StackLang.eval' funs f (StackLang.If inss1 inss2 inss3) (StackLang.V_Bool false :: stk)
-  =
-  vs <- StackLang.eval' funs f inss2 stk;;
-  StackLang.eval' funs f inss3 vs.
-Proof.
-  intros funs f inss1 inss2 inss3 stk.
-  induction f; reflexivity.
-Qed.
-
-Lemma eval_if_true :
-    forall (funs : partial_map (nat * StackLang.stk_tm))
-           (f : nat)
-           (inss1 : StackLang.stk_tm)
-           (inss2 : StackLang.stk_tm)
-           (inss3 : StackLang.stk_tm)
-           (v : StackLang.ins_val)
-           (stk : list StackLang.ins_val),
-  v <> StackLang.V_Bool false ->
-    StackLang.eval' funs f (StackLang.If inss1 inss2 inss3) (v :: stk)
-    =
-    vs <- StackLang.eval' funs f inss1 stk;;
-    StackLang.eval' funs f inss3 vs.
-Proof.
-  intros funs f inss1 inss2 inss3 v stk H.
-  destruct v.
-  - induction f; reflexivity.
-  - destruct b.
-    + induction f; reflexivity.
-    + contradiction.
-Qed.
-
 Lemma seq_eval_if_end :
     forall (funs : partial_map (nat * StackLang.stk_tm))
            (f : nat)
@@ -201,6 +258,13 @@ Proof.
       rewrite eval_if_false; rewrite eval_if_false;
       destruct (StackLang.eval' funs _ inss2 stk); reflexivity.
 Qed.
+
+Fixpoint stk_append inss1 inss2 :=
+  match inss1 with
+  | StackLang.End => inss2
+  | StackLang.Ins ins rst => StackLang.Ins ins (stk_append rst inss2)
+  | StackLang.If thn els rst => StackLang.If thn els (stk_append rst inss2)
+  end.
 
 Lemma seq_eval_append :
     forall (funs : partial_map (nat * StackLang.stk_tm))
@@ -303,96 +367,7 @@ Proof.
     rewrite H. rewrite seq_eval_append. reflexivity.
 Qed.
 
-Lemma eval_prim1 : forall funs f op e env,
-    SourceLang.eval' funs f (SourceLang.Prim1 op e) env
-    =
-    v <- SourceLang.eval' funs f e env;;
-    SourceLang.do_prim1 op v.
-Proof.
-  intros funs f op e env.
-  induction f; reflexivity.
-Qed.
-
-Lemma eval_prim2 : forall funs f op e1 e2 env,
-    SourceLang.eval' funs f (SourceLang.Prim2 op e1 e2) env
-    =
-    v1 <- SourceLang.eval' funs f e1 env;;
-    v2 <- SourceLang.eval' funs f e2 env;;
-    SourceLang.do_prim2 op v1 v2.
-Proof.
-  intros funs f op e env.
-  induction f; reflexivity.
-Qed.
-
-Lemma eval_app : forall funs f fn e env,
-    SourceLang.eval' funs f (SourceLang.App fn e) env
-    =
-    v <- SourceLang.eval' funs f e env;;
-    '(x, t) <- lookup funs fn;;
-    match f with
-    | O => Err OOF
-    | S f' => SourceLang.eval' funs f' t (update empty x v)
-    end.
-Proof.
-  intros funs f fn e env.
-  induction f; reflexivity.
-Qed.
-
-Lemma eval_if : forall funs f e1 e2 e3 env,
-    SourceLang.eval' funs f (SourceLang.If e1 e2 e3) env
-    =
-    v1 <- SourceLang.eval' funs f e1 env;;
-    match v1 with
-    | SourceLang.V_Bool false => SourceLang.eval' funs f e3 env
-    | _ => SourceLang.eval' funs f e2 env
-    end.
-Proof.
-  intros funs f e1 e2 e3 env.
-  induction f; reflexivity.
-Qed.
-
-Lemma eval_let : forall funs f x e1 e2 env,
-    SourceLang.eval' funs f (SourceLang.Let x e1 e2) env
-    =
-    v <- SourceLang.eval' funs f e1 env;;
-    SourceLang.eval' funs f e2 (update env x v).
-Proof.
-  intros funs f x e1 e2 env.
-  induction f; reflexivity.
-Qed.
-
-Lemma eval_var : forall funs f x env,
-    SourceLang.eval' funs f (SourceLang.Var x) env = lookup env x.
-Proof.
-  intros funs f x env.
-  induction f; reflexivity.
-Qed.
-
-Lemma compile_prim1_correct : forall op v stk,
-    append_result (compile_result (SourceLang.do_prim1 op v)) stk
-    =
-    v' <- StackLang.do_uop (compile_prim1 op) (compile_val v);;
-    Ok (v' :: stk).
-Proof.
-  intros op v.
-  destruct op.
-  - (* Add1 *) destruct v; reflexivity.
-  - (* Sub1 *) destruct v; reflexivity.
-  - (* Not *)
-    destruct v.
-    + destruct b; reflexivity.
-    + reflexivity.
-Qed.
-
-Lemma compile_prim2_correct : forall funs f op v1 v2 stk,
-    append_result (compile_result (SourceLang.do_prim2 op v1 v2)) stk
-    =
-    StackLang.eval' funs f (StackLang.Ins (compile_prim2 op) StackLang.End)
-      (compile_val v2 :: compile_val v1 :: stk).
-Proof.
-  intros funs f op v1 v2.
-  destruct op; destruct v1; destruct v2; induction f; reflexivity.
-Qed.
+(* Consistency Lemmas *)
 
 Inductive consistent_envs :
     SourceLang.environment -> list (option string) -> list StackLang.ins_val -> Prop :=
@@ -511,6 +486,39 @@ Definition consistent_funs_consistent
                                       (StackLang.Ins StackLang.Pop StackLang.End)))
                         [compile_val v])).
 
+(* Correctness Lemmas *)
+
+Definition append_result (res : result (list StackLang.ins_val)) (rst : list StackLang.ins_val)
+    : result (list StackLang.ins_val) :=
+  vs <- res;;
+  ret (vs ++ rst).
+
+Lemma compile_prim1_correct : forall op v stk,
+    append_result (compile_result (SourceLang.do_prim1 op v)) stk
+    =
+    v' <- StackLang.do_uop (compile_prim1 op) (compile_val v);;
+    Ok (v' :: stk).
+Proof.
+  intros op v.
+  destruct op.
+  - (* Add1 *) destruct v; reflexivity.
+  - (* Sub1 *) destruct v; reflexivity.
+  - (* Not *)
+    destruct v.
+    + destruct b; reflexivity.
+    + reflexivity.
+Qed.
+
+Lemma compile_prim2_correct : forall funs f op v1 v2 stk,
+    append_result (compile_result (SourceLang.do_prim2 op v1 v2)) stk
+    =
+    StackLang.eval' funs f (StackLang.Ins (compile_prim2 op) StackLang.End)
+      (compile_val v2 :: compile_val v1 :: stk).
+Proof.
+  intros funs f op v1 v2.
+  destruct op; destruct v1; destruct v2; induction f; reflexivity.
+Qed.
+
 Lemma compile_tm_correct :
     forall (s_funs : partial_map (string * SourceLang.tm))
            (sl_funs : partial_map (nat * StackLang.stk_tm))
@@ -628,6 +636,8 @@ Proof.
     induction f; reflexivity.
 Qed.
 
+(* Stronger Consistency Lemmas *)
+
 Theorem append_result_empty : forall (res : result (list StackLang.ins_val)),
   res = append_result res [].
 Proof.
@@ -697,6 +707,8 @@ Proof.
         split; [assumption|].
         assumption.
 Admitted.
+
+(* Full Correctness Theorem *)
 
 Theorem compiler_correctness : forall (f : nat) (prg : SourceLang.prg),
   compile_result (SourceLang.eval f prg) = StackLang.eval f (compile prg).
